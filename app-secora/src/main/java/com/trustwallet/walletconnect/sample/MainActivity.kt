@@ -310,15 +310,15 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         if (nfc_pin_use.editText?.text.toString() == "")
             nfc_pin_use.editText?.setText("0")
         if (nfc_pin_set.editText?.text.toString() == "")
-            nfc_pin_set.editText?.setText("0000")
+            nfc_pin_set.editText?.setText("00000000")
         if (nfc_pin_verify.editText?.text.toString() == "")
-            nfc_pin_verify.editText?.setText("0000")
+            nfc_pin_verify.editText?.setText("00000000")
         if (nfc_puk.editText?.text.toString() == "")
             nfc_puk.editText?.setText("0000000000000000")
         if (nfc_pin_cur.editText?.text.toString() == "")
-            nfc_pin_cur.editText?.setText("0000")
+            nfc_pin_cur.editText?.setText("00000000")
         if (nfc_pin_new.editText?.text.toString() == "")
-            nfc_pin_new.editText?.setText("0000")
+            nfc_pin_new.editText?.setText("00000000")
         if (nfc_seed.editText?.text.toString() == "")
             nfc_seed.editText?.setText("00112233445566778899AABBCCDDEEFF")
         if (nfc_message.editText?.text.toString() == "")
@@ -467,7 +467,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     var pin: ByteArray? = null
 
                     if (pin_use != "0")
-                        pin = pin_cur.decodeHex()
+                        pin = pin_use.decodeHex()
 
                     val signature = NfcUtils.generateSignature(isoTagWrapper, Integer.parseInt(keyHandle), message.decodeHex(), pin)
                     var asnSignature = ByteUtils.bytesToHex(signature.signature)
@@ -486,7 +486,18 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         .show()
                 }
                 Actions.SET_PIN -> {
+                    val puk = NfcUtils.initializePinAndReturnPuk(isoTagWrapper, pin_set.decodeHex())
+                    binding.nfcPuk.editText?.setText(ByteUtils.bytesToHex(puk))
 
+                    AlertDialog.Builder(this)
+                        .setTitle("Response")
+                        .setMessage(
+                            "Remember the PUK:\n${ByteUtils.bytesToHex(puk)}"
+                        )
+                        .setPositiveButton("Dismiss") { dialog, _ ->
+                            dialog.dismiss()
+                        }
+                        .show()
                 }
                 Actions.CHANGE_PIN -> {
 

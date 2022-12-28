@@ -233,7 +233,7 @@
                             android:inputType="text"
                             android:maxLines="1"
                             android:singleLine="true"
-                            android:text="0000"
+                            android:text="00000000"
                             tools:maxLength="124" />
                     </com.google.android.material.textfield.TextInputLayout>
 
@@ -252,7 +252,7 @@
                             android:inputType="text"
                             android:maxLines="1"
                             android:singleLine="true"
-                            android:text="0000"
+                            android:text="00000000"
                             tools:maxLength="124" />
                     </com.google.android.material.textfield.TextInputLayout>
 
@@ -290,7 +290,7 @@
                             android:inputType="text"
                             android:maxLines="1"
                             android:singleLine="true"
-                            android:text="0000"
+                            android:text="00000000"
                             tools:maxLength="124" />
                     </com.google.android.material.textfield.TextInputLayout>
 
@@ -309,7 +309,7 @@
                             android:inputType="text"
                             android:maxLines="1"
                             android:singleLine="true"
-                            android:text="0000"
+                            android:text="00000000"
                             tools:maxLength="124" />
                     </com.google.android.material.textfield.TextInputLayout>
 
