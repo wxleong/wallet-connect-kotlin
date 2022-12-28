@@ -215,7 +215,7 @@
                             android:maxLines="1"
                             android:singleLine="true"
                             android:text="0"
-                            tools:maxLength="124" />
+                            android:maxLength="124" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
@@ -234,7 +234,7 @@
                             android:maxLines="1"
                             android:singleLine="true"
                             android:text="00000000"
-                            tools:maxLength="124" />
+                            android:maxLength="124" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
@@ -253,7 +253,7 @@
                             android:maxLines="1"
                             android:singleLine="true"
                             android:text="00000000"
-                            tools:maxLength="124" />
+                            android:maxLength="124" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
@@ -272,7 +272,7 @@
                             android:maxLines="1"
                             android:singleLine="true"
                             android:text="0000000000000000"
-                            tools:maxLength="16" />
+                            android:maxLength="16" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
@@ -291,7 +291,7 @@
                             android:maxLines="1"
                             android:singleLine="true"
                             android:text="00000000"
-                            tools:maxLength="124" />
+                            android:maxLength="124" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
@@ -310,7 +310,7 @@
                             android:maxLines="1"
                             android:singleLine="true"
                             android:text="00000000"
-                            tools:maxLength="124" />
+                            android:maxLength="124" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.textfield.TextInputLayout

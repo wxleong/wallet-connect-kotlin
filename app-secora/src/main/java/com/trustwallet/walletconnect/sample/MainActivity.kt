@@ -492,7 +492,8 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     AlertDialog.Builder(this)
                         .setTitle("Response")
                         .setMessage(
-                            "Remember the PUK:\n${ByteUtils.bytesToHex(puk)}"
+                            "Remember the PUK:\n${ByteUtils.bytesToHex(puk)}\n\n" +
+                            "and the PIN:\n${pin_set}"
                         )
                         .setPositiveButton("Dismiss") { dialog, _ ->
                             dialog.dismiss()
@@ -510,7 +511,18 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         throw Exception("Invalid PIN")
                 }
                 Actions.UNLOCK_PIN -> {
+                    if (!NfcUtils.unlockPin(isoTagWrapper, puk.decodeHex()))
+                        throw Exception("Invalid PUK")
 
+                    AlertDialog.Builder(this)
+                        .setTitle("Response")
+                        .setMessage(
+                            "PIN Unlocked, remember to set a new PIN"
+                        )
+                        .setPositiveButton("Dismiss") { dialog, _ ->
+                            dialog.dismiss()
+                        }
+                        .show()
                 }
                 else -> {
 
