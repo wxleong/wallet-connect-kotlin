@@ -329,7 +329,7 @@
                             android:maxLength="32"
                             android:maxLines="1"
                             android:singleLine="true"
-                            android:text="0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF" />
+                            android:text="00112233445566778899AABBCCDDEEFF" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
@@ -343,12 +343,12 @@
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
                             android:backgroundTint="@android:color/white"
-                            android:hint="Message to sign"
+                            android:hint="32B data to sign"
                             android:inputType="text"
-                            android:maxLength="32"
+                            android:maxLength="64"
                             android:maxLines="1"
                             android:singleLine="true"
-                            android:text="Some messages" />
+                            android:text="00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                 </LinearLayout>

@@ -17,6 +17,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.github.infineon.ByteUtils
 import com.github.infineon.NfcUtils
+import com.github.infineon.apdu.response.GenerateSignatureResponseApdu
 import com.google.android.material.textfield.TextInputLayout
 import com.google.gson.GsonBuilder
 import com.trustwallet.walletconnect.WCClient
@@ -319,9 +320,9 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         if (nfc_pin_new.editText?.text.toString() == "")
             nfc_pin_new.editText?.setText("0000")
         if (nfc_seed.editText?.text.toString() == "")
-            nfc_seed.editText?.setText("0123456789ABCDEF0123456789ABCDEF")
+            nfc_seed.editText?.setText("00112233445566778899AABBCCDDEEFF")
         if (nfc_message.editText?.text.toString() == "")
-            nfc_message.editText?.setText("Some messages")
+            nfc_message.editText?.setText("00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF")
 
         when (action) {
             Actions.READ_OR_CREATE_KEYPAIR -> {
@@ -415,8 +416,8 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         .setTitle("Response")
                         .setMessage(
                             "Address:\n$address\n\n" +
-                                    "Signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.sigCounter))}\n\n" +
-                                    "Global signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.globalSigCounter))}"
+                            "Signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.sigCounter))}\n\n" +
+                            "Global signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.globalSigCounter))}"
                         )
                         .setPositiveButton("Dismiss") { dialog, _ ->
                             dialog.dismiss()
@@ -454,8 +455,8 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         .setTitle("Response")
                         .setMessage(
                             "Address:\n$address\n\n" +
-                                    "Signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.sigCounter))}\n\n" +
-                                    "Global signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.globalSigCounter))}"
+                            "Signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.sigCounter))}\n\n" +
+                            "Global signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.globalSigCounter))}"
                         )
                         .setPositiveButton("Dismiss") { dialog, _ ->
                             dialog.dismiss()
@@ -463,7 +464,26 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         .show()
                 }
                 Actions.SIGN_MESSAGE -> {
+                    var pin: ByteArray? = null
 
+                    if (pin_use != "0")
+                        pin = pin_cur.decodeHex()
+
+                    val signature = NfcUtils.generateSignature(isoTagWrapper, Integer.parseInt(keyHandle), message.decodeHex(), pin)
+                    var asnSignature = ByteUtils.bytesToHex(signature.signature)
+                    asnSignature = asnSignature.substring(0, asnSignature.length - 4)
+
+                    AlertDialog.Builder(this)
+                        .setTitle("Response")
+                        .setMessage(
+                            "Signature (ASN.1):\n${asnSignature}\n\n" +
+                            "Signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(signature.sigCounter))}\n\n" +
+                            "Global signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(signature.globalSigCounter))}"
+                        )
+                        .setPositiveButton("Dismiss") { dialog, _ ->
+                            dialog.dismiss()
+                        }
+                        .show()
                 }
                 Actions.SET_PIN -> {
 
