@@ -503,7 +503,11 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
                 }
                 Actions.VERIFY_PIN -> {
-
+                    /* A bug in com.github.infineon:secora-blockchain-apdu:1.0.0
+                       missing selectApplication(card) before the verifyPin()
+                       TO BE FIXED */
+                    if (!NfcUtils.verifyPin(isoTagWrapper, pin_verify.decodeHex()))
+                        throw Exception("Invalid PIN")
                 }
                 Actions.UNLOCK_PIN -> {
 
