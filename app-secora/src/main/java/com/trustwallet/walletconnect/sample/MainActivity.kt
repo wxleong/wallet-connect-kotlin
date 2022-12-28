@@ -33,7 +33,6 @@ import com.trustwallet.walletconnect.models.ethereum.WCEthereumTransaction
 import com.trustwallet.walletconnect.models.session.WCSession
 import com.trustwallet.walletconnect.sample.databinding.ActivityMainBinding
 import okhttp3.OkHttpClient
-import org.w3c.dom.Text
 import wallet.core.jni.CoinType
 import wallet.core.jni.PublicKey
 import wallet.core.jni.PublicKeyType
@@ -41,7 +40,7 @@ import wallet.core.jni.PublicKeyType
 
 class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
-    //https://beakutis.medium.com/using-googles-mlkit-and-camerax-for-lightweight-barcode-scanning-bb2038164cdc
+    /* https://beakutis.medium.com/using-googles-mlkit-and-camerax-for-lightweight-barcode-scanning-bb2038164cdc */
 
     /* The order of this enum has to be consistent with the
        nfc_actions string-array from strings.xml */
@@ -265,7 +264,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         val tag: Tag? = intent!!.getParcelableExtra(NfcAdapter.EXTRA_TAG)
-        val isoDep = IsoDep.get(tag) // ISO 14443-4 Type A & B
+        val isoDep = IsoDep.get(tag) /* ISO 14443-4 Type A & B */
 
         nfcCallback?.let { it(IsoTagWrapper(isoDep)) }
 
@@ -279,8 +278,8 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
     }
 
     override fun onItemSelected(parent: AdapterView<*>, view: View?, pos: Int, id: Long) {
-        // An item was selected. You can retrieve the selected item using
-        // parent.getItemAtPosition(pos)
+        /* An item was selected. You can retrieve the selected item using
+           parent.getItemAtPosition(pos) */
         action = Actions.values()[pos]
 
         val nfc_keyhandle: TextInputLayout = binding.nfcKeyhandle
@@ -333,6 +332,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 nfc_keyhandle.editText?.inputType = View.AUTOFILL_TYPE_NONE
                 nfc_keyhandle.editText?.setText("0")
                 nfc_seed.visibility = View.VISIBLE
+                nfc_pin_use.visibility = View.VISIBLE
             }
             Actions.SIGN_MESSAGE -> {
                 nfc_keyhandle.visibility = View.VISIBLE
@@ -364,9 +364,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         }
     }
 
-    override fun onNothingSelected(parent: AdapterView<*>) {
-        // Another interface callback
-    }
+    override fun onNothingSelected(parent: AdapterView<*>) { }
 
     override fun onResume() {
         super.onResume()
@@ -385,64 +383,106 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
     }
 
     private fun nfcDefaultCallback(isoTagWrapper: IsoTagWrapper) {
-        val keyHandle = binding.nfcKeyhandle.editText?.text.toString()
-        val pin_use = binding.nfcPinUse.editText?.text.toString()
-        val pin_set = binding.nfcPinSet.editText?.text.toString()
-        val pin_cur = binding.nfcPinCur.editText?.text.toString()
-        val pin_new = binding.nfcPinNew.editText?.text.toString()
-        val pin_verify = binding.nfcPinVerify.editText?.text.toString()
-        val puk = binding.nfcPuk.editText?.text.toString()
-        val seed = binding.nfcSeed.editText?.text.toString()
-        val message = binding.nfcMessage.editText?.text.toString()
 
-        when (action) {
-            Actions.READ_OR_CREATE_KEYPAIR -> {
-                val pubkey = NfcUtils.readPublicKeyOrCreateIfNotExists(
-                    isoTagWrapper, Integer.parseInt(keyHandle)
-                )
+        try {
+            val keyHandle = binding.nfcKeyhandle.editText?.text.toString()
+            val pin_use = binding.nfcPinUse.editText?.text.toString()
+            val pin_set = binding.nfcPinSet.editText?.text.toString()
+            val pin_cur = binding.nfcPinCur.editText?.text.toString()
+            val pin_new = binding.nfcPinNew.editText?.text.toString()
+            val pin_verify = binding.nfcPinVerify.editText?.text.toString()
+            val puk = binding.nfcPuk.editText?.text.toString()
+            val seed = binding.nfcSeed.editText?.text.toString()
+            val message = binding.nfcMessage.editText?.text.toString()
+            var ret: Boolean = false
 
-                address = CoinType.ETHEREUM.deriveAddressFromPublicKey(
-                    PublicKey(
-                        pubkey.publicKey,
-                        PublicKeyType.SECP256K1EXTENDED
+            when (action) {
+                Actions.READ_OR_CREATE_KEYPAIR -> {
+                    val pubkey = NfcUtils.readPublicKeyOrCreateIfNotExists(
+                        isoTagWrapper, Integer.parseInt(keyHandle)
                     )
-                )
 
-                binding.addressInput.editText?.setText(address)
-
-                AlertDialog.Builder(this)
-                    .setTitle("Response")
-                    .setMessage(
-                        "Address:\n$address\n\n" +
-                        "Signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.sigCounter))}\n\n" +
-                        "Global signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.globalSigCounter))}"
+                    address = CoinType.ETHEREUM.deriveAddressFromPublicKey(
+                        PublicKey(
+                            pubkey.publicKey,
+                            PublicKeyType.SECP256K1EXTENDED
+                        )
                     )
-                    .setPositiveButton("Dismiss") { dialog, _ ->
-                        dialog.dismiss()
-                    }
-                    .show()
-            }
-            Actions.GEN_KEYPAIR_FROM_SEED -> {
 
-            }
-            Actions.SIGN_MESSAGE -> {
+                    binding.addressInput.editText?.setText(address)
 
-            }
-            Actions.SET_PIN -> {
+                    AlertDialog.Builder(this)
+                        .setTitle("Response")
+                        .setMessage(
+                            "Address:\n$address\n\n" +
+                                    "Signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.sigCounter))}\n\n" +
+                                    "Global signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.globalSigCounter))}"
+                        )
+                        .setPositiveButton("Dismiss") { dialog, _ ->
+                            dialog.dismiss()
+                        }
+                        .show()
+                }
+                Actions.GEN_KEYPAIR_FROM_SEED -> {
 
-            }
-            Actions.CHANGE_PIN -> {
+                    /* Generate keypair from seed */
 
-            }
-            Actions.VERIFY_PIN -> {
+                    if (pin_use == "0")
+                        ret = NfcUtils.generateKeyFromSeed(isoTagWrapper, seed.decodeHex(), null)
+                    else
+                        ret = NfcUtils.generateKeyFromSeed(isoTagWrapper, seed.decodeHex(), pin_use.decodeHex())
 
-            }
-            Actions.UNLOCK_PIN -> {
+                    if (!ret)
+                        throw Exception("Invalid PIN")
 
-            }
-            else -> {
+                    /* Read back and display the key info */
 
+                    val pubkey = NfcUtils.readPublicKeyOrCreateIfNotExists(
+                        isoTagWrapper, 0
+                    )
+
+                    address = CoinType.ETHEREUM.deriveAddressFromPublicKey(
+                        PublicKey(
+                            pubkey.publicKey,
+                            PublicKeyType.SECP256K1EXTENDED
+                        )
+                    )
+
+                    binding.addressInput.editText?.setText(address)
+
+                    AlertDialog.Builder(this)
+                        .setTitle("Response")
+                        .setMessage(
+                            "Address:\n$address\n\n" +
+                                    "Signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.sigCounter))}\n\n" +
+                                    "Global signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.globalSigCounter))}"
+                        )
+                        .setPositiveButton("Dismiss") { dialog, _ ->
+                            dialog.dismiss()
+                        }
+                        .show()
+                }
+                Actions.SIGN_MESSAGE -> {
+
+                }
+                Actions.SET_PIN -> {
+
+                }
+                Actions.CHANGE_PIN -> {
+
+                }
+                Actions.VERIFY_PIN -> {
+
+                }
+                Actions.UNLOCK_PIN -> {
+
+                }
+                else -> {
+
+                }
             }
+        } catch (e: Exception) {
+            Toast.makeText(this, e.message, Toast.LENGTH_LONG).show()
         }
     }
 }
