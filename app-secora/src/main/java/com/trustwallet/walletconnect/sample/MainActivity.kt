@@ -501,7 +501,19 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         .show()
                 }
                 Actions.CHANGE_PIN -> {
+                    val puk = NfcUtils.changePin(isoTagWrapper, pin_cur.decodeHex(), pin_new.decodeHex())
+                    binding.nfcPuk.editText?.setText(ByteUtils.bytesToHex(puk))
 
+                    AlertDialog.Builder(this)
+                        .setTitle("Response")
+                        .setMessage(
+                            "Remember the PUK:\n${ByteUtils.bytesToHex(puk)}\n\n" +
+                            "and the PIN:\n${pin_new}"
+                        )
+                        .setPositiveButton("Dismiss") { dialog, _ ->
+                            dialog.dismiss()
+                        }
+                        .show()
                 }
                 Actions.VERIFY_PIN -> {
                     /* A bug in com.github.infineon:secora-blockchain-apdu:1.0.0
@@ -509,6 +521,16 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                        TO BE FIXED */
                     if (!NfcUtils.verifyPin(isoTagWrapper, pin_verify.decodeHex()))
                         throw Exception("Invalid PIN")
+
+                    AlertDialog.Builder(this)
+                        .setTitle("Response")
+                        .setMessage(
+                            "PIN verification passed"
+                        )
+                        .setPositiveButton("Dismiss") { dialog, _ ->
+                            dialog.dismiss()
+                        }
+                        .show()
                 }
                 Actions.UNLOCK_PIN -> {
                     if (!NfcUtils.unlockPin(isoTagWrapper, puk.decodeHex()))
