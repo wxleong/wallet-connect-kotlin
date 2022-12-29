@@ -34,9 +34,11 @@ import com.trustwallet.walletconnect.models.ethereum.WCEthereumTransaction
 import com.trustwallet.walletconnect.models.session.WCSession
 import com.trustwallet.walletconnect.sample.databinding.ActivityMainBinding
 import okhttp3.OkHttpClient
+import okhttp3.internal.and
 import wallet.core.jni.CoinType
 import wallet.core.jni.PublicKey
 import wallet.core.jni.PublicKeyType
+import java.util.*
 
 
 class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
@@ -470,13 +472,47 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         pin = pin_use.decodeHex()
 
                     val signature = NfcUtils.generateSignature(isoTagWrapper, Integer.parseInt(keyHandle), message.decodeHex(), pin)
-                    var asnSignature = ByteUtils.bytesToHex(signature.signature)
-                    asnSignature = asnSignature.substring(0, asnSignature.length - 4)
+                    var asn1Signature = ByteUtils.bytesToHex(signature.signature)
+                    asn1Signature = asn1Signature.substring(0, asn1Signature.length - 4)
+
+                    /* ASN.1 DER encoded signature
+                       Example:
+                           3045022100D962A9F5185971A1229300E8FC7E699027F90843FBAD5DE060
+                           CA4B289CF88D580220222BAB7E5BCC581373135A5E8C9B1933398B994814
+                           CE809FA1053F5E17BC1733
+                       Breakdown:
+                           30: DER TAG Signature
+                           45: Total length of signature
+                           02: DER TAG component
+                           21: Length of R
+                           00D962A9F5185971A1229300E8FC7E699027F90843FBAD5DE060CA4B289CF88D58
+                           02: DER TAG component
+                           20: Length of S
+                           222BAB7E5BCC581373135A5E8C9B1933398B994814CE809FA1053F5E17BC1733
+                     */
+                    /* Signature redundancy check */
+                    val rawPublicKey = NfcUtils.readPublicKeyOrCreateIfNotExists(
+                        isoTagWrapper, Integer.parseInt(keyHandle)
+                    )
+                    val publicKey = PublicKey(
+                        rawPublicKey.publicKey,
+                        PublicKeyType.SECP256K1EXTENDED
+                    )
+                    if (!publicKey.verifyAsDER(asn1Signature.decodeHex(), message.decodeHex())) {
+                        throw Exception("Signature verification failed")
+                    }
+                    val r = extractR(asn1Signature.decodeHex())
+                    val s = verifyAndExtractS(asn1Signature.decodeHex())
+                    if (!publicKey.verify(r + s, message.decodeHex())) {
+                        throw Exception("Signature verification failed")
+                    }
 
                     AlertDialog.Builder(this)
                         .setTitle("Response")
                         .setMessage(
-                            "Signature (ASN.1):\n${asnSignature}\n\n" +
+                            "Signature (ASN.1):\n${asn1Signature}\n\n" +
+                            "r:\n${ByteUtils.bytesToHex(r)}\n\n" +
+                            "s:\n${ByteUtils.bytesToHex(s)}\n\n" +
                             "Signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(signature.sigCounter))}\n\n" +
                             "Global signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(signature.globalSigCounter))}"
                         )
@@ -553,5 +589,40 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         } catch (e: Exception) {
             Toast.makeText(this, e.message, Toast.LENGTH_LONG).show()
         }
+    }
+
+    private fun extractR(signature: ByteArray): ByteArray {
+        val startR = if ((signature[1] and 0x80) != 0) 3 else 2
+        val lengthR = signature[startR + 1]
+        var skipZeros = 0
+        var addZeros = ByteArray(0)
+
+        if (lengthR > 32)
+            skipZeros = lengthR - 32
+        if (lengthR < 32)
+            addZeros = ByteArray(32 - lengthR)
+
+        return addZeros + signature.copyOfRange(startR + 2 + skipZeros, startR + 2 + lengthR)
+    }
+
+    private fun verifyAndExtractS(signature: ByteArray): ByteArray {
+        val startR = if ((signature[1] and 0x80) != 0) 3 else 2
+        val lengthR = signature[startR + 1]
+        val startS = startR +2 + lengthR;
+        val lengthS = signature [startS + 1];
+        var skipZeros = 0
+        var addZeros = ByteArray(0)
+
+        if (lengthS > 32)
+            skipZeros = lengthS - 32
+        if (lengthS < 32)
+            addZeros = ByteArray(32 - lengthS)
+
+        val s: ByteArray = addZeros + signature.copyOfRange(startS + 2 + skipZeros, startS + 2 + lengthS)
+
+        if (s[0] >= 0x80)
+            throw Exception("Signature is vulnerable to malleability attack")
+
+        return s
     }
 }
