@@ -40,6 +40,7 @@ import com.trustwallet.walletconnect.sample.databinding.ActivityMainBinding
 import okhttp3.OkHttpClient
 import okhttp3.internal.and
 import wallet.core.jni.CoinType
+import wallet.core.jni.Hash
 import wallet.core.jni.PublicKey
 import wallet.core.jni.PublicKeyType
 
@@ -254,55 +255,73 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
             alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
 
             nfcCallback = { isoTagWrapper ->
-                val keyHandle = binding.nfcKeyhandle.editText?.text.toString()
-                val pin_use = binding.nfcPinUse.editText?.text.toString()
-                var pin: ByteArray? = null
+                try {
+                    val keyHandle = binding.nfcKeyhandle.editText?.text.toString()
+                    val pin_use = binding.nfcPinUse.editText?.text.toString()
+                    var pin: ByteArray? = null
+                    lateinit var hash: ByteArray
 
-                if (pin_use != "0")
-                    pin = pin_use.decodeHex()
+                    /* https://docs.walletconnect.com/1.0/json-rpc-api-methods/ethereum */
+                    if (message.data.length == 32) {
+                        /* eth_sign (legacy) */
+                        hash = message.data.decodeHex()
+                    } else {
+                        /* eth_sign (standard), personal_sign */
+                        val msg = message.data.decodeHex()
+                        val prefix = ("\u0019Ethereum Signed Message:\n" + msg.size).toByteArray(Charsets.UTF_8)
+                        hash = Hash.keccak256(prefix + msg)
+                    }
 
-                val signature = NfcUtils.generateSignature(
-                    isoTagWrapper, Integer.parseInt(keyHandle), message.data.decodeHex(), pin
-                )
-                var asn1Signature = signature.signature.toHex()
-                asn1Signature = asn1Signature.substring(0, asn1Signature.length - 4)
+                    if (pin_use != "0")
+                        pin = pin_use.decodeHex()
 
-                /* Signature redundancy check */
+                    val signature = NfcUtils.generateSignature(
+                        isoTagWrapper, Integer.parseInt(keyHandle), hash, pin
+                    )
+                    var asn1Signature = signature.signature.toHex()
+                    asn1Signature = asn1Signature.substring(0, asn1Signature.length - 4)
 
-                val rawPublicKey = NfcUtils.readPublicKeyOrCreateIfNotExists(
-                    isoTagWrapper, Integer.parseInt(keyHandle)
-                )
-                val publicKey = PublicKey(
-                    rawPublicKey.publicKey,
-                    PublicKeyType.SECP256K1EXTENDED
-                )
-                if (!publicKey.verifyAsDER(asn1Signature.decodeHex(), message.data.decodeHex())) {
-                    throw Exception("Signature verification failed")
+                    /* Signature redundancy check */
+
+                    val rawPublicKey = NfcUtils.readPublicKeyOrCreateIfNotExists(
+                        isoTagWrapper, Integer.parseInt(keyHandle)
+                    )
+                    val publicKey = PublicKey(
+                        rawPublicKey.publicKey,
+                        PublicKeyType.SECP256K1EXTENDED
+                    )
+                    if (!publicKey.verifyAsDER(asn1Signature.decodeHex(), hash)) {
+                        throw Exception("Signature verification failed")
+                    }
+                    val r = extractR(asn1Signature.decodeHex())
+                    val s = verifyAndExtractS(asn1Signature.decodeHex())
+                    if (!publicKey.verify(r + s, hash)) {
+                        throw Exception("Signature verification failed")
+                    }
+                    val rs = r + s
+
+                    /* Determine the component v */
+
+                    val v = byteArrayOf(0)
+
+                    for (i in 0..3) {
+                        val recoveredPublicKey = PublicKey.recover(rs + v, hash)
+
+                        if (recoveredPublicKey != null
+                            && recoveredPublicKey.data() contentEquals publicKey.data())
+                            break
+                        v[0]++
+                    }
+
+                    val rsv = rs + v
+
+                    wcClient.approveRequest(id, rsv)
+                } catch (e: Exception) {
+                    wcClient.rejectRequest(id)
+                    throw e
+                } finally {
+                    alertDialog.dismiss()
                 }
-                val r = extractR(asn1Signature.decodeHex())
-                val s = verifyAndExtractS(asn1Signature.decodeHex())
-                if (!publicKey.verify(r + s, message.data.decodeHex())) {
-                    throw Exception("Signature verification failed")
-                }
-                val rs = r + s
-
-                /* Determine the component v */
-
-                val v = byteArrayOf(0)
-
-                for (i in 0..3) {
-                    val recoveredPublicKey = PublicKey.recover(rs + v, message.data.decodeHex())
-
-                    if (recoveredPublicKey != null
-                        && recoveredPublicKey.data() contentEquals publicKey.data())
-                        break
-                    v[0]++
-                }
-
-                val rsv = rs + v
-
-                wcClient.approveRequest(id, rsv)
-                alertDialog.dismiss()
             }
         }
     }
