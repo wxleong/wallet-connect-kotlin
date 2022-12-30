@@ -15,9 +15,13 @@ import android.widget.Spinner
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.budiyev.android.codescanner.AutoFocusMode
+import com.budiyev.android.codescanner.CodeScanner
+import com.budiyev.android.codescanner.DecodeCallback
+import com.budiyev.android.codescanner.ErrorCallback
+import com.budiyev.android.codescanner.ScanMode
 import com.github.infineon.ByteUtils
 import com.github.infineon.NfcUtils
-import com.github.infineon.apdu.response.GenerateSignatureResponseApdu
 import com.google.android.material.textfield.TextInputLayout
 import com.google.gson.GsonBuilder
 import com.trustwallet.walletconnect.WCClient
@@ -38,12 +42,8 @@ import okhttp3.internal.and
 import wallet.core.jni.CoinType
 import wallet.core.jni.PublicKey
 import wallet.core.jni.PublicKeyType
-import java.util.*
-
 
 class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
-
-    /* https://beakutis.medium.com/using-googles-mlkit-and-camerax-for-lightweight-barcode-scanning-bb2038164cdc */
 
     /* The order of this enum has to be consistent with the
        nfc_actions string-array from strings.xml */
@@ -54,10 +54,11 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
     private lateinit var binding: ActivityMainBinding
     private var action: Actions = Actions.READ_OR_CREATE_KEYPAIR
-    private var nfcAdapter: NfcAdapter? = null
     private var nfcCallback: ((IsoTagWrapper)->Unit) =
         { isoTagWrapper -> nfcDefaultCallback(isoTagWrapper) }
-    private var pendingIntent: PendingIntent? = null
+    private lateinit var nfcAdapter: NfcAdapter
+    private lateinit var pendingIntent: PendingIntent
+    private lateinit var codeScanner: CodeScanner
 
     private val wcClient by lazy {
         WCClient(GsonBuilder(), OkHttpClient())
@@ -81,6 +82,8 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        /* Set up NFC */
 
         val spinner: Spinner = findViewById(R.id.nfc_spinner)
         spinner.onItemSelectedListener = this
@@ -108,6 +111,44 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_MUTABLE
         )
+
+        /* Set up QR scanner */
+
+        codeScanner = CodeScanner(this, binding.scannerView)
+        codeScanner.camera = CodeScanner.CAMERA_BACK
+        codeScanner.formats = CodeScanner.ALL_FORMATS
+        codeScanner.autoFocusMode = AutoFocusMode.SAFE
+        codeScanner.scanMode = ScanMode.SINGLE
+        codeScanner.isAutoFocusEnabled = true // Whether to enable auto focus or not
+        codeScanner.isFlashEnabled = false // Whether to enable flash or not
+
+        codeScanner.decodeCallback = DecodeCallback {
+            runOnUiThread {
+                codeScanner.releaseResources()
+                binding.scannerFrame.visibility = View.GONE
+                binding.uriInput.editText?.setText(it.text)
+                Toast.makeText(this, "Scan result: ${it.text}", Toast.LENGTH_LONG).show()
+            }
+        }
+        codeScanner.errorCallback = ErrorCallback {
+            runOnUiThread {
+                codeScanner.releaseResources()
+                binding.scannerFrame.visibility = View.GONE
+                Toast.makeText(this, "Camera initialization error: ${it.message}",
+                    Toast.LENGTH_LONG).show()
+            }
+        }
+        binding.scannerButton.setOnClickListener {
+            if (binding.scannerFrame.visibility == View.GONE) {
+                codeScanner.startPreview()
+                binding.scannerFrame.visibility = View.VISIBLE
+            } else {
+                codeScanner.releaseResources()
+                binding.scannerFrame.visibility = View.GONE
+            }
+        }
+
+        /* Set up wallet connect */
 
         wcClient.onDisconnect = { _, _ -> onDisconnect() }
         wcClient.onFailure = { t -> onFailure(t) }
@@ -185,30 +226,16 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 return@runOnUiThread
             }
             val meta = remotePeerMeta ?: return@runOnUiThread
-            val alertDialog = AlertDialog.Builder(this)
+            AlertDialog.Builder(this)
                 .setTitle(meta.name)
                 .setMessage("${meta.description}\n${meta.url}")
-                .setPositiveButton("Tap Your Card To Approve") { dialog, _ ->
-                    setNfcCallback { isoTagWrapper ->
-                        val pubkey = NfcUtils.readPublicKeyOrCreateIfNotExists(
-                            isoTagWrapper, 1
-                        ).publicKey
-                        address = CoinType.ETHEREUM.deriveAddressFromPublicKey(
-                            PublicKey(
-                                pubkey,
-                                PublicKeyType.SECP256K1
-                            )
-                        )
-                        approveSession()
-                        dialog.dismiss()
-                    }
+                .setPositiveButton("Approve") { _, _ ->
+                    approveSession()
                 }
                 .setNegativeButton("Reject") { _, _ ->
                     rejectSession()
                 }
                 .show()
-
-            alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
         }
     }
 
@@ -217,14 +244,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
             val alertDialog = AlertDialog.Builder(this)
                 .setTitle(message.type.name)
                 .setMessage(message.data)
-                .setPositiveButton("Tap Your Card To Sign") { dialog, _ ->
-                    setNfcCallback { isoTagWrapper ->
-                        val signature = NfcUtils.generateSignature(
-                            isoTagWrapper, 1, message.data.decodeHex(), null
-                        )
-                        wcClient.approveRequest(id, signature.data)
-                        dialog.dismiss()
-                    }
+                .setPositiveButton("Tap Your Card To Sign") { _, _ ->
                 }
                 .setNegativeButton("Cancel") { _, _ ->
                     rejectRequest(id)
@@ -232,6 +252,44 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 .show()
 
             alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+
+            nfcCallback = { isoTagWrapper ->
+                val keyHandle = binding.nfcKeyhandle.editText?.text.toString()
+                val pin_use = binding.nfcPinUse.editText?.text.toString()
+                var pin: ByteArray? = null
+
+                if (pin_use != "0")
+                    pin = pin_use.decodeHex()
+
+                val signature = NfcUtils.generateSignature(
+                    isoTagWrapper, Integer.parseInt(keyHandle), message.data.decodeHex(), pin
+                )
+                var asn1Signature = ByteUtils.bytesToHex(signature.signature)
+                asn1Signature = asn1Signature.substring(0, asn1Signature.length - 4)
+
+                /* Signature redundancy check */
+                val rawPublicKey = NfcUtils.readPublicKeyOrCreateIfNotExists(
+                    isoTagWrapper, Integer.parseInt(keyHandle)
+                )
+                val publicKey = PublicKey(
+                    rawPublicKey.publicKey,
+                    PublicKeyType.SECP256K1EXTENDED
+                )
+                if (!publicKey.verifyAsDER(asn1Signature.decodeHex(), message.data.decodeHex())) {
+                    throw Exception("Signature verification failed")
+                }
+                val r = extractR(asn1Signature.decodeHex())
+                val s = verifyAndExtractS(asn1Signature.decodeHex())
+                if (!publicKey.verify(r + s, message.data.decodeHex())) {
+                    throw Exception("Signature verification failed")
+                }
+                val rs = r + s
+
+                wcClient.approveRequest(id, rs)
+                alertDialog.dismiss()
+
+                nfcCallback = { isoTagWrapper -> nfcDefaultCallback(isoTagWrapper) }
+            }
         }
     }
 
@@ -266,17 +324,14 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
-        val tag: Tag? = intent!!.getParcelableExtra(NfcAdapter.EXTRA_TAG)
-        val isoDep = IsoDep.get(tag) /* ISO 14443-4 Type A & B */
+        try {
+            val tag: Tag? = intent!!.getParcelableExtra(NfcAdapter.EXTRA_TAG)
+            val isoDep = IsoDep.get(tag) /* ISO 14443-4 Type A & B */
 
-        nfcCallback?.let { it(IsoTagWrapper(isoDep)) }
+            nfcCallback?.let { it(IsoTagWrapper(isoDep)) }
 
-        isoDep.close()
-    }
-
-    private fun setNfcCallback(f: (isoTagWrapper: IsoTagWrapper)->Unit) {
-        nfcCallback = f.also {
-            setNfcCallback { isoTagWrapper -> nfcDefaultCallback(isoTagWrapper) }
+            isoDep.close()
+        } catch (e: Exception) {
         }
     }
 
@@ -377,6 +432,12 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
             }
             nfcAdapter!!.enableForegroundDispatch(this, pendingIntent, null, null)
         }
+    }
+
+    override fun onPause() {
+        codeScanner.releaseResources()
+        binding.scannerFrame.visibility = View.GONE
+        super.onPause()
     }
 
     private fun openNfcSettings() {
