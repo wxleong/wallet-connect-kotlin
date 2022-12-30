@@ -43,6 +43,7 @@ import wallet.core.jni.CoinType
 import wallet.core.jni.Hash
 import wallet.core.jni.PublicKey
 import wallet.core.jni.PublicKeyType
+import java.nio.charset.Charset
 
 class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
@@ -242,16 +243,40 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
     private fun onEthSign(id: Long, message: WCEthereumSignMessage) {
         runOnUiThread {
+            val data = message.data.decodeHex()
             val alertDialog = AlertDialog.Builder(this)
                 .setTitle(message.type.name)
-                .setMessage(message.data)
+                .setMessage(message.data.decodeHex().toString(Charset.defaultCharset()))
                 .setPositiveButton("Tap Your Card To Sign") { _, _ ->
                 }
                 .setNegativeButton("Cancel") { _, _ ->
                     rejectRequest(id)
                 }
-                .show()
+                .create()
 
+            when (message.type) {
+                WCEthereumSignMessage.WCSignType.MESSAGE -> {
+                    if (data.size == 32) {
+                        alertDialog.setMessage(
+                            message.data
+                        )
+                    } else {
+                        alertDialog.setMessage(
+                            message.data.decodeHex().toString(Charset.defaultCharset())
+                        )
+                    }
+                }
+                WCEthereumSignMessage.WCSignType.PERSONAL_MESSAGE -> {
+                    alertDialog.setMessage(
+                        message.data.decodeHex().toString(Charset.defaultCharset())
+                    )
+                }
+                else -> {
+                    throw Exception("Unsupported WCSignType")
+                }
+            }
+
+            alertDialog.show()
             alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
 
             nfcCallback = { isoTagWrapper ->
@@ -260,16 +285,28 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     val pin_use = binding.nfcPinUse.editText?.text.toString()
                     var pin: ByteArray? = null
                     lateinit var hash: ByteArray
-                    val data = message.data.decodeHex()
 
                     /* https://docs.walletconnect.com/1.0/json-rpc-api-methods/ethereum */
-                    if (data.size == 32) {
-                        /* eth_sign (legacy) */
-                        hash = data
-                    } else {
-                        /* eth_sign (standard), personal_sign */
-                        val prefix = ("\u0019Ethereum Signed Message:\n" + data.size).toByteArray(Charsets.UTF_8)
-                        hash = Hash.keccak256(prefix + data)
+                    when (message.type) {
+                        WCEthereumSignMessage.WCSignType.MESSAGE -> {
+                            if (data.size == 32) {
+                                /* eth_sign (legacy) */
+                                hash = data
+                            } else {
+                                /* eth_sign (standard) */
+                                val prefix = ("\u0019Ethereum Signed Message:\n" + data.size).toByteArray(Charsets.UTF_8)
+                                hash = Hash.keccak256(prefix + data)
+                            }
+                        }
+                        WCEthereumSignMessage.WCSignType.PERSONAL_MESSAGE -> {
+                            /* personal_sign */
+                            val text = "\u0019Ethereum Signed Message:\n" + data.size
+                            val prefix = text.toByteArray(Charsets.UTF_8)
+                            hash = Hash.keccak256(prefix + data)
+                        }
+                        else -> {
+                            throw Exception("Unsupported WCSignType")
+                        }
                     }
 
                     if (pin_use != "0")
