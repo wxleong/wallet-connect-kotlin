@@ -20,12 +20,12 @@ import com.budiyev.android.codescanner.CodeScanner
 import com.budiyev.android.codescanner.DecodeCallback
 import com.budiyev.android.codescanner.ErrorCallback
 import com.budiyev.android.codescanner.ScanMode
-import com.github.infineon.ByteUtils
 import com.github.infineon.NfcUtils
 import com.google.android.material.textfield.TextInputLayout
 import com.google.gson.GsonBuilder
 import com.trustwallet.walletconnect.WCClient
 import com.trustwallet.walletconnect.exceptions.InvalidSessionException
+import com.trustwallet.walletconnect.extensions.toHex
 import com.trustwallet.walletconnect.models.WCAccount
 import com.trustwallet.walletconnect.models.WCPeerMeta
 import com.trustwallet.walletconnect.models.WCSignTransaction
@@ -264,10 +264,11 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 val signature = NfcUtils.generateSignature(
                     isoTagWrapper, Integer.parseInt(keyHandle), message.data.decodeHex(), pin
                 )
-                var asn1Signature = ByteUtils.bytesToHex(signature.signature)
+                var asn1Signature = signature.signature.toHex()
                 asn1Signature = asn1Signature.substring(0, asn1Signature.length - 4)
 
                 /* Signature redundancy check */
+
                 val rawPublicKey = NfcUtils.readPublicKeyOrCreateIfNotExists(
                     isoTagWrapper, Integer.parseInt(keyHandle)
                 )
@@ -285,10 +286,23 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 }
                 val rs = r + s
 
-                wcClient.approveRequest(id, rs)
-                alertDialog.dismiss()
+                /* Determine the component v */
 
-                nfcCallback = { isoTagWrapper -> nfcDefaultCallback(isoTagWrapper) }
+                val v = byteArrayOf(0)
+
+                for (i in 0..3) {
+                    val recoveredPublicKey = PublicKey.recover(rs + v, message.data.decodeHex())
+
+                    if (recoveredPublicKey != null
+                        && recoveredPublicKey.data() contentEquals publicKey.data())
+                        break
+                    v[0]++
+                }
+
+                val rsv = rs + v
+
+                wcClient.approveRequest(id, rsv)
+                alertDialog.dismiss()
             }
         }
     }
@@ -332,6 +346,9 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
             isoDep.close()
         } catch (e: Exception) {
+            Toast.makeText(this, e.toString(), Toast.LENGTH_LONG).show()
+        } finally {
+            nfcCallback = { isoTagWrapper -> nfcDefaultCallback(isoTagWrapper) }
         }
     }
 
@@ -479,8 +496,8 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         .setTitle("Response")
                         .setMessage(
                             "Address:\n$address\n\n" +
-                            "Signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.sigCounter))}\n\n" +
-                            "Global signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.globalSigCounter))}"
+                            "Signature counter:\n${Integer.decode("0x" + pubkey.sigCounter.toHex())}\n\n" +
+                            "Global signature counter:\n${Integer.decode("0x" + pubkey.globalSigCounter.toHex())}"
                         )
                         .setPositiveButton("Dismiss") { dialog, _ ->
                             dialog.dismiss()
@@ -518,8 +535,8 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         .setTitle("Response")
                         .setMessage(
                             "Address:\n$address\n\n" +
-                            "Signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.sigCounter))}\n\n" +
-                            "Global signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(pubkey.globalSigCounter))}"
+                            "Signature counter:\n${Integer.decode("0x" + pubkey.sigCounter.toHex())}\n\n" +
+                            "Global signature counter:\n${Integer.decode("0x" + pubkey.globalSigCounter.toHex())}"
                         )
                         .setPositiveButton("Dismiss") { dialog, _ ->
                             dialog.dismiss()
@@ -533,7 +550,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         pin = pin_use.decodeHex()
 
                     val signature = NfcUtils.generateSignature(isoTagWrapper, Integer.parseInt(keyHandle), message.decodeHex(), pin)
-                    var asn1Signature = ByteUtils.bytesToHex(signature.signature)
+                    var asn1Signature = signature.signature.toHex()
                     asn1Signature = asn1Signature.substring(0, asn1Signature.length - 4)
 
                     /* ASN.1 DER encoded signature
@@ -551,7 +568,9 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                            20: Length of S
                            222BAB7E5BCC581373135A5E8C9B1933398B994814CE809FA1053F5E17BC1733
                      */
+
                     /* Signature redundancy check */
+
                     val rawPublicKey = NfcUtils.readPublicKeyOrCreateIfNotExists(
                         isoTagWrapper, Integer.parseInt(keyHandle)
                     )
@@ -568,14 +587,31 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         throw Exception("Signature verification failed")
                     }
 
+                    /* Determine the component v */
+
+                    val rs = r + s
+                    val v = byteArrayOf(0)
+
+                    for (i in 0..3) {
+                        val recoveredPublicKey = PublicKey.recover(rs + v, message.decodeHex())
+
+                        if (recoveredPublicKey != null
+                            && recoveredPublicKey.data() contentEquals publicKey.data())
+                            break
+                        v[0]++
+                    }
+
+                    val rsv = rs + v
+
                     AlertDialog.Builder(this)
                         .setTitle("Response")
                         .setMessage(
-                            "Signature (ASN.1):\n${asn1Signature}\n\n" +
-                            "r:\n${ByteUtils.bytesToHex(r)}\n\n" +
-                            "s:\n${ByteUtils.bytesToHex(s)}\n\n" +
-                            "Signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(signature.sigCounter))}\n\n" +
-                            "Global signature counter:\n${Integer.decode("0x" + ByteUtils.bytesToHex(signature.globalSigCounter))}"
+                            "Signature (ASN.1):\n${rsv.toHex()}\n\n" +
+                            "r:\n${r.toHex()}\n\n" +
+                            "s:\n${s.toHex()}\n\n" +
+                            "v:\n${v.toHex()}\n\n" +
+                            "Signature counter:\n${Integer.decode("0x" + signature.sigCounter.toHex())}\n\n" +
+                            "Global signature counter:\n${Integer.decode("0x" + signature.globalSigCounter.toHex())}"
                         )
                         .setPositiveButton("Dismiss") { dialog, _ ->
                             dialog.dismiss()
@@ -584,12 +620,12 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 }
                 Actions.SET_PIN -> {
                     val puk = NfcUtils.initializePinAndReturnPuk(isoTagWrapper, pin_set.decodeHex())
-                    binding.nfcPuk.editText?.setText(ByteUtils.bytesToHex(puk))
+                    binding.nfcPuk.editText?.setText(puk.toHex())
 
                     AlertDialog.Builder(this)
                         .setTitle("Response")
                         .setMessage(
-                            "Remember the PUK:\n${ByteUtils.bytesToHex(puk)}\n\n" +
+                            "Remember the PUK:\n${puk.toHex()}\n\n" +
                             "and the PIN:\n${pin_set}"
                         )
                         .setPositiveButton("Dismiss") { dialog, _ ->
@@ -599,12 +635,12 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 }
                 Actions.CHANGE_PIN -> {
                     val puk = NfcUtils.changePin(isoTagWrapper, pin_cur.decodeHex(), pin_new.decodeHex())
-                    binding.nfcPuk.editText?.setText(ByteUtils.bytesToHex(puk))
+                    binding.nfcPuk.editText?.setText(puk.toHex())
 
                     AlertDialog.Builder(this)
                         .setTitle("Response")
                         .setMessage(
-                            "Remember the PUK:\n${ByteUtils.bytesToHex(puk)}\n\n" +
+                            "Remember the PUK:\n${puk.toHex()}\n\n" +
                             "and the PIN:\n${pin_new}"
                         )
                         .setPositiveButton("Dismiss") { dialog, _ ->
@@ -648,7 +684,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 }
             }
         } catch (e: Exception) {
-            Toast.makeText(this, e.message, Toast.LENGTH_LONG).show()
+            Toast.makeText(this, e.toString(), Toast.LENGTH_LONG).show()
         }
     }
 
