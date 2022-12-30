@@ -260,16 +260,16 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     val pin_use = binding.nfcPinUse.editText?.text.toString()
                     var pin: ByteArray? = null
                     lateinit var hash: ByteArray
+                    val data = message.data.decodeHex()
 
                     /* https://docs.walletconnect.com/1.0/json-rpc-api-methods/ethereum */
-                    if (message.data.length == 32) {
+                    if (data.size == 32) {
                         /* eth_sign (legacy) */
-                        hash = message.data.decodeHex()
+                        hash = data
                     } else {
                         /* eth_sign (standard), personal_sign */
-                        val msg = message.data.decodeHex()
-                        val prefix = ("\u0019Ethereum Signed Message:\n" + msg.size).toByteArray(Charsets.UTF_8)
-                        hash = Hash.keccak256(prefix + msg)
+                        val prefix = ("\u0019Ethereum Signed Message:\n" + data.size).toByteArray(Charsets.UTF_8)
+                        hash = Hash.keccak256(prefix + data)
                     }
 
                     if (pin_use != "0")
