@@ -40,6 +40,7 @@ import com.trustwallet.walletconnect.sample.databinding.ActivityMainBinding
 import okhttp3.OkHttpClient
 import okhttp3.internal.and
 import wallet.core.jni.CoinType
+import wallet.core.jni.EthereumAbi
 import wallet.core.jni.Hash
 import wallet.core.jni.PublicKey
 import wallet.core.jni.PublicKeyType
@@ -243,10 +244,36 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
     private fun onEthSign(id: Long, message: WCEthereumSignMessage) {
         runOnUiThread {
-            val data = message.data.decodeHex()
+            val byteArrayData: ByteArray
+            val dialogMessage: String
+
+            when (message.type) {
+                WCEthereumSignMessage.WCSignType.MESSAGE -> {
+                    byteArrayData = message.data.decodeHex()
+                    if (byteArrayData.size == 32) {
+                        /* eth_sign (legacy) */
+                        dialogMessage = message.data
+                    } else {
+                        /* eth_sign (standard) */
+                        dialogMessage = message.data.decodeHex().toString(Charset.defaultCharset())
+                    }
+                }
+                WCEthereumSignMessage.WCSignType.PERSONAL_MESSAGE -> {
+                    byteArrayData = message.data.decodeHex()
+                    dialogMessage = message.data.decodeHex().toString(Charset.defaultCharset())
+                }
+                WCEthereumSignMessage.WCSignType.TYPED_MESSAGE -> {
+                    byteArrayData = EthereumAbi.encodeTyped(message.data)
+                    dialogMessage = message.data
+                }
+                else -> {
+                    throw Exception("Unsupported WCSignType")
+                }
+            }
+
             val alertDialog = AlertDialog.Builder(this)
                 .setTitle(message.type.name)
-                .setMessage(message.data.decodeHex().toString(Charset.defaultCharset()))
+                .setMessage(dialogMessage)
                 .setPositiveButton("Tap Your Card To Sign") { _, _ ->
                 }
                 .setNegativeButton("Cancel") { _, _ ->
@@ -254,56 +281,35 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 }
                 .create()
 
-            when (message.type) {
-                WCEthereumSignMessage.WCSignType.MESSAGE -> {
-                    if (data.size == 32) {
-                        alertDialog.setMessage(
-                            message.data
-                        )
-                    } else {
-                        alertDialog.setMessage(
-                            message.data.decodeHex().toString(Charset.defaultCharset())
-                        )
-                    }
-                }
-                WCEthereumSignMessage.WCSignType.PERSONAL_MESSAGE -> {
-                    alertDialog.setMessage(
-                        message.data.decodeHex().toString(Charset.defaultCharset())
-                    )
-                }
-                else -> {
-                    throw Exception("Unsupported WCSignType")
-                }
-            }
-
             alertDialog.show()
             alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
 
             nfcCallback = { isoTagWrapper ->
                 try {
+                    val prefix = ("\u0019Ethereum Signed Message:\n" + byteArrayData.size).toByteArray(Charsets.UTF_8)
                     val keyHandle = binding.nfcKeyhandle.editText?.text.toString()
                     val pin_use = binding.nfcPinUse.editText?.text.toString()
                     var pin: ByteArray? = null
-                    lateinit var hash: ByteArray
+                    lateinit var byteArrayToSign: ByteArray
 
                     /* https://docs.walletconnect.com/1.0/json-rpc-api-methods/ethereum */
                     when (message.type) {
                         WCEthereumSignMessage.WCSignType.MESSAGE -> {
-                            if (data.size == 32) {
+                            if (byteArrayData.size == 32) {
                                 /* eth_sign (legacy) */
-                                hash = data
+                                byteArrayToSign = byteArrayData
                             } else {
                                 /* eth_sign (standard) */
-                                val prefix = ("\u0019Ethereum Signed Message:\n" + data.size).toByteArray(Charsets.UTF_8)
-                                hash = Hash.keccak256(prefix + data)
+                                byteArrayToSign = Hash.keccak256(prefix + byteArrayData)
                             }
                         }
                         WCEthereumSignMessage.WCSignType.PERSONAL_MESSAGE -> {
-                            /* personal_sign */
-                            val text = "\u0019Ethereum Signed Message:\n" + data.size
-                            val prefix = text.toByteArray(Charsets.UTF_8)
-                            hash = Hash.keccak256(prefix + data)
+                            byteArrayToSign = Hash.keccak256(prefix + byteArrayData)
                         }
+                        WCEthereumSignMessage.WCSignType.TYPED_MESSAGE -> {
+                            byteArrayToSign = byteArrayData
+                        }
+
                         else -> {
                             throw Exception("Unsupported WCSignType")
                         }
@@ -313,7 +319,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         pin = pin_use.decodeHex()
 
                     val signature = NfcUtils.generateSignature(
-                        isoTagWrapper, Integer.parseInt(keyHandle), hash, pin
+                        isoTagWrapper, Integer.parseInt(keyHandle), byteArrayToSign, pin
                     )
                     var asn1Signature = signature.signature.toHex()
                     asn1Signature = asn1Signature.substring(0, asn1Signature.length - 4)
@@ -327,12 +333,12 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         rawPublicKey.publicKey,
                         PublicKeyType.SECP256K1EXTENDED
                     )
-                    if (!publicKey.verifyAsDER(asn1Signature.decodeHex(), hash)) {
+                    if (!publicKey.verifyAsDER(asn1Signature.decodeHex(), byteArrayToSign)) {
                         throw Exception("Signature verification failed")
                     }
                     val r = extractR(asn1Signature.decodeHex())
                     val s = verifyAndExtractS(asn1Signature.decodeHex())
-                    if (!publicKey.verify(r + s, hash)) {
+                    if (!publicKey.verify(r + s, byteArrayToSign)) {
                         throw Exception("Signature verification failed")
                     }
                     val rs = r + s
@@ -342,7 +348,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     val v = byteArrayOf(0)
 
                     for (i in 0..3) {
-                        val recoveredPublicKey = PublicKey.recover(rs + v, hash)
+                        val recoveredPublicKey = PublicKey.recover(rs + v, byteArrayToSign)
 
                         if (recoveredPublicKey != null
                             && recoveredPublicKey.data() contentEquals publicKey.data())
@@ -352,7 +358,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
                     val rsv = rs + v
 
-                    wcClient.approveRequest(id, rsv)
+                    wcClient.approveRequest(id, "0x" + rsv.toHex())
                 } catch (e: Exception) {
                     wcClient.rejectRequest(id)
                     throw e
