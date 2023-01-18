@@ -18,6 +18,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.budiyev.android.codescanner.*
 import com.github.infineon.NfcUtils
 import com.google.android.material.textfield.TextInputLayout
+import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.trustwallet.walletconnect.WCClient
 import com.trustwallet.walletconnect.exceptions.InvalidSessionException
@@ -357,11 +358,11 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
             } else {
                 web3j.ethGasPrice().sendAsync().get().gasPrice
             }
-            val gasLimit = if (payload.gasLimit != null) {
-                if (payload.gasLimit!!.startsWith("0x")) {
-                    BigInteger(payload.gasLimit!!.substring(2), 16)
+            val gasLimit = if (payload.gas != null) {
+                if (payload.gas!!.startsWith("0x")) {
+                    BigInteger(payload.gas!!.substring(2), 16)
                 } else {
-                    BigInteger(payload.gasLimit, 16)
+                    BigInteger(payload.gas, 16)
                 }
             } else {
                 web3j.ethGetBlockByNumber(DefaultBlockParameterName.LATEST, false).sendAsync().get().block.gasLimit
@@ -380,10 +381,11 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 payload.data)
             val encodedTransaction = TransactionEncoder.encode(rawTransaction, chainId)
             val byteArrayToSign = Hash.keccak256(encodedTransaction)
+            val payloadPreview = Gson().toJson(rawTransaction, RawTransaction::class.java)
 
             val alertDialog = AlertDialog.Builder(this)
                 .setTitle("Transaction")
-                .setMessage(payload.toString())
+                .setMessage(payloadPreview.toString())
                 .setPositiveButton("Tap Your Card To Sign") { _, _ ->
                 }
                 .setNegativeButton("Cancel") { _, _ ->
@@ -406,11 +408,10 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     val sig = macroSign(isoTagWrapper, Integer.parseInt(keyHandle), pin, byteArrayToSign)
                     val rsv = sig.r + sig.s + sig.v
 
-                    wcClient.rejectRequest(id)
-
                     if (!send) {
                         wcClient.approveRequest(id, rsv)
                     } else {
+                        wcClient.rejectRequest(id)
                         //transactionHash = sendTransaction()
                     }
                 } catch (e: Exception) {
