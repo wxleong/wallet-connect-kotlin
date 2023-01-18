@@ -15,11 +15,7 @@ import android.widget.Spinner
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import com.budiyev.android.codescanner.AutoFocusMode
-import com.budiyev.android.codescanner.CodeScanner
-import com.budiyev.android.codescanner.DecodeCallback
-import com.budiyev.android.codescanner.ErrorCallback
-import com.budiyev.android.codescanner.ScanMode
+import com.budiyev.android.codescanner.*
 import com.github.infineon.NfcUtils
 import com.google.android.material.textfield.TextInputLayout
 import com.google.gson.GsonBuilder
@@ -39,12 +35,15 @@ import com.trustwallet.walletconnect.models.session.WCSession
 import com.trustwallet.walletconnect.sample.databinding.ActivityMainBinding
 import okhttp3.OkHttpClient
 import okhttp3.internal.and
-import wallet.core.jni.CoinType
-import wallet.core.jni.EthereumAbi
-import wallet.core.jni.Hash
-import wallet.core.jni.PublicKey
-import wallet.core.jni.PublicKeyType
+import org.web3j.crypto.RawTransaction
+import org.web3j.crypto.TransactionEncoder
+import org.web3j.protocol.Web3j
+import org.web3j.protocol.core.DefaultBlockParameterName
+import org.web3j.protocol.http.HttpService
+import wallet.core.jni.*
+import java.math.BigInteger
 import java.nio.charset.Charset
+
 
 class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
@@ -74,6 +73,11 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
     private lateinit var wcSession: WCSession
 
     private var remotePeerMeta: WCPeerMeta? = null
+
+    private lateinit var web3j: Web3j
+
+    private data class RSV(val r: ByteArray, val s: ByteArray, val v: ByteArray,
+                   val sigCounter: ByteArray, val globalSigCounter: ByteArray)
 
     companion object {
         init {
@@ -169,6 +173,12 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         wcClient.onSignTransaction = { id, transaction -> onSignTransaction(id, transaction) }
 
         setupConnectButton()
+
+        /* Set up web3j */
+
+        //web3j = Web3j.build(HttpService("https://mainnet.infura.io/v3/7b40d72779e541a498cb0da69aa418a2"))
+        /* https://blastapi.io/public-api/ethereum */
+        web3j = Web3j.build(HttpService("https://eth-mainnet.public.blastapi.io"))
     }
 
     private fun setupConnectButton() {
@@ -287,10 +297,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
             nfcCallback = { isoTagWrapper ->
                 try {
                     val prefix = ("\u0019Ethereum Signed Message:\n" + byteArrayData.size).toByteArray(Charsets.UTF_8)
-                    val keyHandle = binding.nfcKeyhandle.editText?.text.toString()
-                    val pin_use = binding.nfcPinUse.editText?.text.toString()
-                    var pin: ByteArray? = null
-                    lateinit var byteArrayToSign: ByteArray
+                    val byteArrayToSign: ByteArray
 
                     /* https://docs.walletconnect.com/1.0/json-rpc-api-methods/ethereum */
                     when (message.type) {
@@ -315,48 +322,15 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         }
                     }
 
-                    if (pin_use != "0")
-                        pin = pin_use.decodeHex()
-
-                    val signature = NfcUtils.generateSignature(
-                        isoTagWrapper, Integer.parseInt(keyHandle), byteArrayToSign, pin
-                    )
-                    var asn1Signature = signature.signature.toHex()
-                    asn1Signature = asn1Signature.substring(0, asn1Signature.length - 4)
-
-                    /* Signature redundancy check */
-
-                    val rawPublicKey = NfcUtils.readPublicKeyOrCreateIfNotExists(
-                        isoTagWrapper, Integer.parseInt(keyHandle)
-                    )
-                    val publicKey = PublicKey(
-                        rawPublicKey.publicKey,
-                        PublicKeyType.SECP256K1EXTENDED
-                    )
-                    if (!publicKey.verifyAsDER(asn1Signature.decodeHex(), byteArrayToSign)) {
-                        throw Exception("Signature verification failed")
+                    val keyHandle = binding.nfcKeyhandle.editText?.text.toString()
+                    val pinUse = binding.nfcPinUse.editText?.text.toString()
+                    val pin = if (pinUse != "0") {
+                        pinUse.decodeHex()
+                    } else {
+                        null
                     }
-                    val r = extractR(asn1Signature.decodeHex())
-                    val s = verifyAndExtractS(asn1Signature.decodeHex())
-                    if (!publicKey.verify(r + s, byteArrayToSign)) {
-                        throw Exception("Signature verification failed")
-                    }
-                    val rs = r + s
-
-                    /* Determine the component v */
-
-                    val v = byteArrayOf(0)
-
-                    for (i in 0..3) {
-                        val recoveredPublicKey = PublicKey.recover(rs + v, byteArrayToSign)
-
-                        if (recoveredPublicKey != null
-                            && recoveredPublicKey.data() contentEquals publicKey.data())
-                            break
-                        v[0]++
-                    }
-
-                    val rsv = rs + v
+                    val sig = macroSign(isoTagWrapper, Integer.parseInt(keyHandle), pin, byteArrayToSign)
+                    val rsv = sig.r + sig.s + sig.v
 
                     wcClient.approveRequest(id, "0x" + rsv.toHex())
                 } catch (e: Exception) {
@@ -369,7 +343,85 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         }
     }
 
-    private fun onEthTransaction(id: Long, payload: WCEthereumTransaction, send: Boolean = false) { }
+    private fun onEthTransaction(id: Long, payload: WCEthereumTransaction, send: Boolean = false) {
+        runOnUiThread {
+            val address = binding.addressInput.editText?.text?.toString() ?: address
+            val chainId = (binding.chainInput.editText?.text?.toString() ?: "1").toLong()
+            val nonce = web3j.ethGetTransactionCount(address, DefaultBlockParameterName.PENDING).sendAsync().get().transactionCount
+            val gasPrice = if (payload.gasPrice != null) {
+                if (payload.gasPrice!!.startsWith("0x")) {
+                    BigInteger(payload.gasPrice!!.substring(2), 16)
+                } else {
+                    BigInteger(payload.gasPrice, 16)
+                }
+            } else {
+                web3j.ethGasPrice().sendAsync().get().gasPrice
+            }
+            val gasLimit = if (payload.gasLimit != null) {
+                if (payload.gasLimit!!.startsWith("0x")) {
+                    BigInteger(payload.gasLimit!!.substring(2), 16)
+                } else {
+                    BigInteger(payload.gasLimit, 16)
+                }
+            } else {
+                web3j.ethGetBlockByNumber(DefaultBlockParameterName.LATEST, false).sendAsync().get().block.gasLimit
+            }
+            var value = if (payload.value != null) {
+                if (payload.value!!.startsWith("0x")) {
+                    payload.value!!.substring(2)
+                } else {
+                    payload.value
+                }
+            } else {
+                throw Exception("Field value is null")
+            }
+            val rawTransaction = RawTransaction.createTransaction(nonce, gasPrice,
+                gasLimit, payload.to, BigInteger(value, 16),
+                payload.data)
+            val encodedTransaction = TransactionEncoder.encode(rawTransaction, chainId)
+            val byteArrayToSign = Hash.keccak256(encodedTransaction)
+
+            val alertDialog = AlertDialog.Builder(this)
+                .setTitle("Transaction")
+                .setMessage(payload.toString())
+                .setPositiveButton("Tap Your Card To Sign") { _, _ ->
+                }
+                .setNegativeButton("Cancel") { _, _ ->
+                    rejectRequest(id)
+                }
+                .create()
+
+            alertDialog.show()
+            alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+
+            nfcCallback = { isoTagWrapper ->
+                try {
+                    val keyHandle = binding.nfcKeyhandle.editText?.text.toString()
+                    val pinUse = binding.nfcPinUse.editText?.text.toString()
+                    val pin = if (pinUse != "0") {
+                        pinUse.decodeHex()
+                    } else {
+                        null
+                    }
+                    val sig = macroSign(isoTagWrapper, Integer.parseInt(keyHandle), pin, byteArrayToSign)
+                    val rsv = sig.r + sig.s + sig.v
+
+                    wcClient.rejectRequest(id)
+
+                    if (!send) {
+                        wcClient.approveRequest(id, rsv)
+                    } else {
+                        //transactionHash = sendTransaction()
+                    }
+                } catch (e: Exception) {
+                    wcClient.rejectRequest(id)
+                    throw e
+                } finally {
+                    alertDialog.dismiss()
+                }
+            }
+        }
+    }
 
     private fun onBnbTrade(id: Long, order: WCBinanceTradeOrder) { }
 
@@ -419,81 +471,81 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
            parent.getItemAtPosition(pos) */
         action = Actions.values()[pos]
 
-        val nfc_keyhandle: TextInputLayout = binding.nfcKeyhandle
-        val nfc_pin_use: TextInputLayout = binding.nfcPinUse
-        val nfc_pin_set: TextInputLayout = binding.nfcPinSet
-        val nfc_pin_verify: TextInputLayout = binding.nfcPinVerify
-        val nfc_puk: TextInputLayout = binding.nfcPuk
-        val nfc_pin_cur: TextInputLayout = binding.nfcPinCur
-        val nfc_pin_new: TextInputLayout = binding.nfcPinNew
-        val nfc_seed: TextInputLayout = binding.nfcSeed
-        val nfc_message: TextInputLayout = binding.nfcMessage
+        val nfcKeyHandle: TextInputLayout = binding.nfcKeyhandle
+        val nfcPinUse: TextInputLayout = binding.nfcPinUse
+        val nfcPinSet: TextInputLayout = binding.nfcPinSet
+        val nfcPinVerify: TextInputLayout = binding.nfcPinVerify
+        val nfcPuk: TextInputLayout = binding.nfcPuk
+        val nfcPinCur: TextInputLayout = binding.nfcPinCur
+        val nfcPinNew: TextInputLayout = binding.nfcPinNew
+        val nfcSeed: TextInputLayout = binding.nfcSeed
+        val nfcMessage: TextInputLayout = binding.nfcMessage
 
-        nfc_keyhandle.visibility = View.GONE
-        nfc_keyhandle.editText?.inputType = InputType.TYPE_CLASS_NUMBER
-        nfc_pin_use.visibility = View.GONE
-        nfc_pin_set.visibility = View.GONE
-        nfc_pin_verify.visibility = View.GONE
-        nfc_puk.visibility = View.GONE
-        nfc_puk.editText?.inputType = InputType.TYPE_CLASS_TEXT
-        nfc_pin_cur.visibility = View.GONE
-        nfc_pin_new.visibility = View.GONE
-        nfc_seed.visibility = View.GONE
-        nfc_message.visibility = View.GONE
+        nfcKeyHandle.visibility = View.GONE
+        nfcKeyHandle.editText?.inputType = InputType.TYPE_CLASS_NUMBER
+        nfcPinUse.visibility = View.GONE
+        nfcPinSet.visibility = View.GONE
+        nfcPinVerify.visibility = View.GONE
+        nfcPuk.visibility = View.GONE
+        nfcPuk.editText?.inputType = InputType.TYPE_CLASS_TEXT
+        nfcPinCur.visibility = View.GONE
+        nfcPinNew.visibility = View.GONE
+        nfcSeed.visibility = View.GONE
+        nfcMessage.visibility = View.GONE
 
-        if (nfc_keyhandle.editText?.text.toString() == "")
-            nfc_keyhandle.editText?.setText("1")
-        if (nfc_pin_use.editText?.text.toString() == "")
-            nfc_pin_use.editText?.setText("0")
-        if (nfc_pin_set.editText?.text.toString() == "")
-            nfc_pin_set.editText?.setText("00000000")
-        if (nfc_pin_verify.editText?.text.toString() == "")
-            nfc_pin_verify.editText?.setText("00000000")
-        if (nfc_puk.editText?.text.toString() == "")
-            nfc_puk.editText?.setText("0000000000000000")
-        if (nfc_pin_cur.editText?.text.toString() == "")
-            nfc_pin_cur.editText?.setText("00000000")
-        if (nfc_pin_new.editText?.text.toString() == "")
-            nfc_pin_new.editText?.setText("00000000")
-        if (nfc_seed.editText?.text.toString() == "")
-            nfc_seed.editText?.setText("00112233445566778899AABBCCDDEEFF")
-        if (nfc_message.editText?.text.toString() == "")
-            nfc_message.editText?.setText("00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF")
+        if (nfcKeyHandle.editText?.text.toString() == "")
+            nfcKeyHandle.editText?.setText("1")
+        if (nfcPinUse.editText?.text.toString() == "")
+            nfcPinUse.editText?.setText("0")
+        if (nfcPinSet.editText?.text.toString() == "")
+            nfcPinSet.editText?.setText("00000000")
+        if (nfcPinVerify.editText?.text.toString() == "")
+            nfcPinVerify.editText?.setText("00000000")
+        if (nfcPuk.editText?.text.toString() == "")
+            nfcPuk.editText?.setText("0000000000000000")
+        if (nfcPinCur.editText?.text.toString() == "")
+            nfcPinCur.editText?.setText("00000000")
+        if (nfcPinNew.editText?.text.toString() == "")
+            nfcPinNew.editText?.setText("00000000")
+        if (nfcSeed.editText?.text.toString() == "")
+            nfcSeed.editText?.setText("00112233445566778899AABBCCDDEEFF")
+        if (nfcMessage.editText?.text.toString() == "")
+            nfcMessage.editText?.setText("00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF")
 
         when (action) {
             Actions.READ_OR_CREATE_KEYPAIR -> {
-                nfc_keyhandle.visibility = View.VISIBLE
+                nfcKeyHandle.visibility = View.VISIBLE
             }
             Actions.GEN_KEYPAIR_FROM_SEED -> {
-                nfc_keyhandle.visibility = View.VISIBLE
-                nfc_keyhandle.editText?.inputType = View.AUTOFILL_TYPE_NONE
-                nfc_keyhandle.editText?.setText("0")
-                nfc_seed.visibility = View.VISIBLE
-                nfc_pin_use.visibility = View.VISIBLE
+                nfcKeyHandle.visibility = View.VISIBLE
+                nfcKeyHandle.editText?.inputType = View.AUTOFILL_TYPE_NONE
+                nfcKeyHandle.editText?.setText("0")
+                nfcSeed.visibility = View.VISIBLE
+                nfcPinUse.visibility = View.VISIBLE
             }
             Actions.SIGN_MESSAGE -> {
-                nfc_keyhandle.visibility = View.VISIBLE
-                nfc_pin_use.visibility = View.VISIBLE
-                nfc_message.visibility =View.VISIBLE
+                nfcKeyHandle.visibility = View.VISIBLE
+                nfcPinUse.visibility = View.VISIBLE
+                nfcMessage.visibility =View.VISIBLE
             }
             Actions.SET_PIN -> {
-                nfc_pin_set.visibility = View.VISIBLE
-                nfc_puk.visibility = View.VISIBLE
-                nfc_puk.editText?.inputType = InputType.TYPE_NULL
-                nfc_puk.editText?.setTextIsSelectable(true)
+                nfcPinSet.visibility = View.VISIBLE
+                nfcPuk.visibility = View.VISIBLE
+                nfcPuk.editText?.inputType = InputType.TYPE_NULL
+                nfcPuk.editText?.setTextIsSelectable(true)
             }
             Actions.CHANGE_PIN -> {
-                nfc_pin_cur.visibility = View.VISIBLE
-                nfc_pin_new.visibility = View.VISIBLE
-                nfc_puk.visibility = View.VISIBLE
-                nfc_puk.editText?.inputType = InputType.TYPE_NULL
-                nfc_puk.editText?.setTextIsSelectable(true)
+                nfcPinCur.visibility = View.VISIBLE
+                nfcPinNew.visibility = View.VISIBLE
+                nfcPuk.visibility = View.VISIBLE
+                nfcPuk.editText?.inputType = InputType.TYPE_NULL
+                nfcPuk.editText?.setTextIsSelectable(true)
             }
             Actions.VERIFY_PIN -> {
-                nfc_pin_verify.visibility = View.VISIBLE
+                nfcPinVerify.visibility = View.VISIBLE
             }
             Actions.UNLOCK_PIN -> {
-                nfc_puk.visibility = View.VISIBLE
+                nfcPuk.visibility = View.VISIBLE
             }
             else -> {
 
@@ -529,15 +581,15 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
         try {
             val keyHandle = binding.nfcKeyhandle.editText?.text.toString()
-            val pin_use = binding.nfcPinUse.editText?.text.toString()
-            val pin_set = binding.nfcPinSet.editText?.text.toString()
-            val pin_cur = binding.nfcPinCur.editText?.text.toString()
-            val pin_new = binding.nfcPinNew.editText?.text.toString()
-            val pin_verify = binding.nfcPinVerify.editText?.text.toString()
+            val pinUse = binding.nfcPinUse.editText?.text.toString()
+            val pinSet = binding.nfcPinSet.editText?.text.toString()
+            val pinCur = binding.nfcPinCur.editText?.text.toString()
+            val pinNew = binding.nfcPinNew.editText?.text.toString()
+            val pinVerify = binding.nfcPinVerify.editText?.text.toString()
             val puk = binding.nfcPuk.editText?.text.toString()
             val seed = binding.nfcSeed.editText?.text.toString()
             val message = binding.nfcMessage.editText?.text.toString()
-            var ret: Boolean = false
+            var ret: Boolean
 
             when (action) {
                 Actions.READ_OR_CREATE_KEYPAIR -> {
@@ -570,10 +622,10 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
                     /* Generate keypair from seed */
 
-                    if (pin_use == "0")
+                    if (pinUse == "0")
                         ret = NfcUtils.generateKeyFromSeed(isoTagWrapper, seed.decodeHex(), null)
                     else
-                        ret = NfcUtils.generateKeyFromSeed(isoTagWrapper, seed.decodeHex(), pin_use.decodeHex())
+                        ret = NfcUtils.generateKeyFromSeed(isoTagWrapper, seed.decodeHex(), pinUse.decodeHex())
 
                     if (!ret)
                         throw Exception("Invalid PIN")
@@ -606,74 +658,24 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         .show()
                 }
                 Actions.SIGN_MESSAGE -> {
-                    var pin: ByteArray? = null
 
-                    if (pin_use != "0")
-                        pin = pin_use.decodeHex()
-
-                    val signature = NfcUtils.generateSignature(isoTagWrapper, Integer.parseInt(keyHandle), message.decodeHex(), pin)
-                    var asn1Signature = signature.signature.toHex()
-                    asn1Signature = asn1Signature.substring(0, asn1Signature.length - 4)
-
-                    /* ASN.1 DER encoded signature
-                       Example:
-                           3045022100D962A9F5185971A1229300E8FC7E699027F90843FBAD5DE060
-                           CA4B289CF88D580220222BAB7E5BCC581373135A5E8C9B1933398B994814
-                           CE809FA1053F5E17BC1733
-                       Breakdown:
-                           30: DER TAG Signature
-                           45: Total length of signature
-                           02: DER TAG component
-                           21: Length of R
-                           00D962A9F5185971A1229300E8FC7E699027F90843FBAD5DE060CA4B289CF88D58
-                           02: DER TAG component
-                           20: Length of S
-                           222BAB7E5BCC581373135A5E8C9B1933398B994814CE809FA1053F5E17BC1733
-                     */
-
-                    /* Signature redundancy check */
-
-                    val rawPublicKey = NfcUtils.readPublicKeyOrCreateIfNotExists(
-                        isoTagWrapper, Integer.parseInt(keyHandle)
-                    )
-                    val publicKey = PublicKey(
-                        rawPublicKey.publicKey,
-                        PublicKeyType.SECP256K1EXTENDED
-                    )
-                    if (!publicKey.verifyAsDER(asn1Signature.decodeHex(), message.decodeHex())) {
-                        throw Exception("Signature verification failed")
+                    val pin = if (pinUse != "0") {
+                        pinUse.decodeHex()
+                    } else {
+                        null
                     }
-                    val r = extractR(asn1Signature.decodeHex())
-                    val s = verifyAndExtractS(asn1Signature.decodeHex())
-                    if (!publicKey.verify(r + s, message.decodeHex())) {
-                        throw Exception("Signature verification failed")
-                    }
-
-                    /* Determine the component v */
-
-                    val rs = r + s
-                    val v = byteArrayOf(0)
-
-                    for (i in 0..3) {
-                        val recoveredPublicKey = PublicKey.recover(rs + v, message.decodeHex())
-
-                        if (recoveredPublicKey != null
-                            && recoveredPublicKey.data() contentEquals publicKey.data())
-                            break
-                        v[0]++
-                    }
-
-                    val rsv = rs + v
+                    val sig = macroSign(isoTagWrapper, Integer.parseInt(keyHandle), pin, message.decodeHex())
+                    val rsv = sig.r + sig.s + sig.v
 
                     AlertDialog.Builder(this)
                         .setTitle("Response")
                         .setMessage(
                             "Signature (ASN.1):\n${rsv.toHex()}\n\n" +
-                            "r:\n${r.toHex()}\n\n" +
-                            "s:\n${s.toHex()}\n\n" +
-                            "v:\n${v.toHex()}\n\n" +
-                            "Signature counter:\n${Integer.decode("0x" + signature.sigCounter.toHex())}\n\n" +
-                            "Global signature counter:\n${Integer.decode("0x" + signature.globalSigCounter.toHex())}"
+                            "r:\n${sig.r.toHex()}\n\n" +
+                            "s:\n${sig.s.toHex()}\n\n" +
+                            "v:\n${sig.v.toHex()}\n\n" +
+                            "Signature counter:\n${Integer.decode("0x" + sig.sigCounter.toHex())}\n\n" +
+                            "Global signature counter:\n${Integer.decode("0x" + sig.globalSigCounter.toHex())}"
                         )
                         .setPositiveButton("Dismiss") { dialog, _ ->
                             dialog.dismiss()
@@ -681,14 +683,14 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         .show()
                 }
                 Actions.SET_PIN -> {
-                    val puk = NfcUtils.initializePinAndReturnPuk(isoTagWrapper, pin_set.decodeHex())
+                    val puk = NfcUtils.initializePinAndReturnPuk(isoTagWrapper, pinSet.decodeHex())
                     binding.nfcPuk.editText?.setText(puk.toHex())
 
                     AlertDialog.Builder(this)
                         .setTitle("Response")
                         .setMessage(
                             "Remember the PUK:\n${puk.toHex()}\n\n" +
-                            "and the PIN:\n${pin_set}"
+                            "and the PIN:\n${pinSet}"
                         )
                         .setPositiveButton("Dismiss") { dialog, _ ->
                             dialog.dismiss()
@@ -696,14 +698,14 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         .show()
                 }
                 Actions.CHANGE_PIN -> {
-                    val puk = NfcUtils.changePin(isoTagWrapper, pin_cur.decodeHex(), pin_new.decodeHex())
+                    val puk = NfcUtils.changePin(isoTagWrapper, pinCur.decodeHex(), pinNew.decodeHex())
                     binding.nfcPuk.editText?.setText(puk.toHex())
 
                     AlertDialog.Builder(this)
                         .setTitle("Response")
                         .setMessage(
                             "Remember the PUK:\n${puk.toHex()}\n\n" +
-                            "and the PIN:\n${pin_new}"
+                            "and the PIN:\n${pinNew}"
                         )
                         .setPositiveButton("Dismiss") { dialog, _ ->
                             dialog.dismiss()
@@ -714,7 +716,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     /* A bug in com.github.infineon:secora-blockchain-apdu:1.0.0
                        missing selectApplication(card) before the verifyPin()
                        TO BE FIXED */
-                    if (!NfcUtils.verifyPin(isoTagWrapper, pin_verify.decodeHex()))
+                    if (!NfcUtils.verifyPin(isoTagWrapper, pinVerify.decodeHex()))
                         throw Exception("Invalid PIN")
 
                     AlertDialog.Builder(this)
@@ -783,5 +785,63 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
             throw Exception("Signature is vulnerable to malleability attack")
 
         return s
+    }
+
+    private fun macroSign(isoTagWrapper: IsoTagWrapper, keyHandle: Int,
+                          pin: ByteArray?, data: ByteArray): RSV {
+
+        val signature = NfcUtils.generateSignature(isoTagWrapper, keyHandle, data, pin)
+        var asn1Signature = signature.signature.toHex()
+        asn1Signature = asn1Signature.substring(0, asn1Signature.length - 4)
+
+        /* ASN.1 DER encoded signature
+           Example:
+               3045022100D962A9F5185971A1229300E8FC7E699027F90843FBAD5DE060
+               CA4B289CF88D580220222BAB7E5BCC581373135A5E8C9B1933398B994814
+               CE809FA1053F5E17BC1733
+           Breakdown:
+               30: DER TAG Signature
+               45: Total length of signature
+               02: DER TAG component
+               21: Length of R
+               00D962A9F5185971A1229300E8FC7E699027F90843FBAD5DE060CA4B289CF88D58
+               02: DER TAG component
+               20: Length of S
+               222BAB7E5BCC581373135A5E8C9B1933398B994814CE809FA1053F5E17BC1733
+         */
+
+        /* Signature redundancy check */
+
+        val rawPublicKey = NfcUtils.readPublicKeyOrCreateIfNotExists(
+            isoTagWrapper, keyHandle
+        )
+        val publicKey = PublicKey(
+            rawPublicKey.publicKey,
+            PublicKeyType.SECP256K1EXTENDED
+        )
+        if (!publicKey.verifyAsDER(asn1Signature.decodeHex(), data)) {
+            throw Exception("Signature verification failed")
+        }
+        val r = extractR(asn1Signature.decodeHex())
+        val s = verifyAndExtractS(asn1Signature.decodeHex())
+        if (!publicKey.verify(r + s, data)) {
+            throw Exception("Signature verification failed")
+        }
+
+        /* Determine the component v */
+
+        val rs = r + s
+        val v = byteArrayOf(0)
+
+        for (i in 0..3) {
+            val recoveredPublicKey = PublicKey.recover(rs + v, data)
+
+            if (recoveredPublicKey != null
+                && recoveredPublicKey.data() contentEquals publicKey.data())
+                break
+            v[0]++
+        }
+
+        return RSV(r, s, v, signature.sigCounter, signature.globalSigCounter)
     }
 }
