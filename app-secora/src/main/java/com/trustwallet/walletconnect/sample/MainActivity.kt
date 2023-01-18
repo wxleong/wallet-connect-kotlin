@@ -184,9 +184,9 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
         /* Set up web3j */
 
-        web3j = Web3j.build(HttpService("https://mainnet.infura.io/v3/7b40d72779e541a498cb0da69aa418a2"))
+        //web3j = Web3j.build(HttpService("https://mainnet.infura.io/v3/7b40d72779e541a498cb0da69aa418a2"))
         /* https://blastapi.io/public-api/ethereum */
-        //web3j = Web3j.build(HttpService("https://eth-mainnet.public.blastapi.io"))
+        web3j = Web3j.build(HttpService("https://eth-mainnet.public.blastapi.io"))
     }
 
     private fun setupConnectButton() {
@@ -354,6 +354,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
     private fun onEthTransaction(id: Long, payload: WCEthereumTransaction, send: Boolean = false) {
         runOnUiThread {
             val address = binding.addressInput.editText?.text?.toString() ?: address
+            val balance = web3j.ethGetBalance(address, DefaultBlockParameterName.LATEST).sendAsync().get().balance.toString(10)
             val chainId = (binding.chainInput.editText?.text?.toString() ?: "1").toLong()
             val nonce = web3j.ethGetTransactionCount(address, DefaultBlockParameterName.PENDING).sendAsync().get().transactionCount
             val gasPrice = if (payload.gasPrice != null) {
