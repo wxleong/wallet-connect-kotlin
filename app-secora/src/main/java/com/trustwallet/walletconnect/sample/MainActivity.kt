@@ -10,10 +10,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
 import android.view.View
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
-import android.widget.Spinner
-import android.widget.Toast
+import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.budiyev.android.codescanner.*
@@ -47,10 +44,8 @@ import org.web3j.protocol.core.DefaultBlockParameterName
 import org.web3j.protocol.http.HttpService
 import org.web3j.rlp.RlpEncoder
 import org.web3j.rlp.RlpList
-import org.web3j.utils.Numeric
 import wallet.core.jni.*
 import java.math.BigInteger
-import java.nio.ByteBuffer
 import java.nio.charset.Charset
 
 
@@ -70,21 +65,16 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
     private lateinit var nfcAdapter: NfcAdapter
     private lateinit var pendingIntent: PendingIntent
     private lateinit var codeScanner: CodeScanner
-
+    private var address = ""
+    private val peerMeta = WCPeerMeta(name = "Example", url = "https://example.com")
+    private lateinit var wcSession: WCSession
+    private var remotePeerMeta: WCPeerMeta? = null
+    private data class RSV(val r: ByteArray, val s: ByteArray, val v: ByteArray,
+                           val sigCounter: ByteArray, val globalSigCounter: ByteArray)
+    private data class DialogObject(val alertDialog: AlertDialog, val view: View)
     private val wcClient by lazy {
         WCClient(GsonBuilder(), OkHttpClient())
     }
-
-    private var address = ""
-
-    private val peerMeta = WCPeerMeta(name = "Example", url = "https://example.com")
-
-    private lateinit var wcSession: WCSession
-
-    private var remotePeerMeta: WCPeerMeta? = null
-
-    private data class RSV(val r: ByteArray, val s: ByteArray, val v: ByteArray,
-                   val sigCounter: ByteArray, val globalSigCounter: ByteArray)
 
     companion object {
         init {
@@ -281,18 +271,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 }
             }
 
-            val alertDialog = AlertDialog.Builder(this)
-                .setTitle(message.type.name)
-                .setMessage(dialogMessage)
-                .setPositiveButton("Tap Your Card To Sign") { _, _ ->
-                }
-                .setNegativeButton("Cancel") { _, _ ->
-                    rejectRequest(id)
-                }
-                .create()
-
-            alertDialog.show()
-            alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+            val alertDialogObject = macroCreateDialog(id, message.type.name, dialogMessage)
 
             nfcCallback = { isoTagWrapper ->
                 try {
@@ -323,7 +302,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     }
 
                     val keyHandle = binding.nfcKeyhandle.editText?.text.toString()
-                    val pinUse = binding.nfcPinUse.editText?.text.toString()
+                    val pinUse = alertDialogObject.view.findViewById<TextInputLayout>(R.id.dialogPinInput).editText?.text.toString()
                     val pin = if (pinUse != "0") {
                         pinUse.decodeHex()
                     } else {
@@ -337,7 +316,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     wcClient.rejectRequest(id)
                     throw e
                 } finally {
-                    alertDialog.dismiss()
+                    alertDialogObject.alertDialog.dismiss()
                 }
             }
         }
@@ -400,23 +379,12 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
             val byteArrayToSign = Hash.keccak256(encodedTransaction)
             val payloadPreview = Gson().toJson(rawTransaction, RawTransaction::class.java)
 
-            val alertDialog = AlertDialog.Builder(this)
-                .setTitle("Transaction")
-                .setMessage(payloadPreview.toString())
-                .setPositiveButton("Tap Your Card To Sign") { _, _ ->
-                }
-                .setNegativeButton("Cancel") { _, _ ->
-                    rejectRequest(id)
-                }
-                .create()
-
-            alertDialog.show()
-            alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+            val alertDialogObject = macroCreateDialog(id, "Transaction", payloadPreview.toString())
 
             nfcCallback = { isoTagWrapper ->
                 try {
                     val keyHandle = binding.nfcKeyhandle.editText?.text.toString()
-                    val pinUse = binding.nfcPinUse.editText?.text.toString()
+                    val pinUse = alertDialogObject.view.findViewById<TextInputLayout>(R.id.dialogPinInput).editText?.text.toString()
                     val pin = if (pinUse != "0") {
                         pinUse.decodeHex()
                     } else {
@@ -453,7 +421,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     wcClient.rejectRequest(id)
                     throw e
                 } finally {
-                    alertDialog.dismiss()
+                    alertDialogObject.alertDialog.dismiss()
                 }
             }
         }
@@ -886,5 +854,27 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         v[0] = v[0].plus(27).toByte()
 
         return RSV(r, s, v, signature.sigCounter, signature.globalSigCounter)
+    }
+
+    private fun macroCreateDialog(id: Long, title: String, message: String): DialogObject {
+        val inflater = this.layoutInflater;
+        val alertDialog = AlertDialog.Builder(this)
+            .setTitle(title)
+            .setPositiveButton("Tap Your Card To Sign") { _, _ ->
+            }
+            .setNegativeButton("Cancel") { _, _ ->
+            }
+            .setOnDismissListener {
+                rejectRequest(id)
+            }
+            .create()
+
+        val alertDialogView = inflater.inflate(R.layout.alert_dialog, null)
+        alertDialogView.findViewById<TextView>(R.id.dialogMessage).text = message
+        alertDialog.setView(alertDialogView)
+        alertDialog.show()
+        alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+
+        return DialogObject(alertDialog, alertDialogView)
     }
 }

@@ -9,4 +9,8 @@
         <item name="colorAccent">#3375bb</item>
     </style>
 
+    <style name="TextLabel" parent="TextAppearance.Design.Hint">
+        <item name="android:textSize">8sp</item>
+    </style>
+
 </resources>
