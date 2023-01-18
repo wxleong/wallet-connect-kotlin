@@ -37,12 +37,19 @@ import com.trustwallet.walletconnect.sample.databinding.ActivityMainBinding
 import okhttp3.OkHttpClient
 import okhttp3.internal.and
 import org.web3j.crypto.RawTransaction
+import org.web3j.crypto.Sign
 import org.web3j.crypto.TransactionEncoder
+import org.web3j.crypto.TransactionEncoder.asRlpValues
+import org.web3j.crypto.transaction.type.TransactionType
 import org.web3j.protocol.Web3j
 import org.web3j.protocol.core.DefaultBlockParameterName
 import org.web3j.protocol.http.HttpService
+import org.web3j.rlp.RlpEncoder
+import org.web3j.rlp.RlpList
+import org.web3j.utils.Numeric
 import wallet.core.jni.*
 import java.math.BigInteger
+import java.nio.ByteBuffer
 import java.nio.charset.Charset
 
 
@@ -177,9 +184,9 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
         /* Set up web3j */
 
-        //web3j = Web3j.build(HttpService("https://mainnet.infura.io/v3/7b40d72779e541a498cb0da69aa418a2"))
+        web3j = Web3j.build(HttpService("https://mainnet.infura.io/v3/7b40d72779e541a498cb0da69aa418a2"))
         /* https://blastapi.io/public-api/ethereum */
-        web3j = Web3j.build(HttpService("https://eth-mainnet.public.blastapi.io"))
+        //web3j = Web3j.build(HttpService("https://eth-mainnet.public.blastapi.io"))
     }
 
     private fun setupConnectButton() {
@@ -406,13 +413,31 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         null
                     }
                     val sig = macroSign(isoTagWrapper, Integer.parseInt(keyHandle), pin, byteArrayToSign)
-                    val rsv = sig.r + sig.s + sig.v
 
                     if (!send) {
+                        val rsv = sig.r + sig.s + sig.v
                         wcClient.approveRequest(id, rsv)
                     } else {
-                        wcClient.rejectRequest(id)
-                        //transactionHash = sendTransaction()
+                        if (rawTransaction.type != TransactionType.LEGACY) {
+                            wcClient.rejectRequest(id, "Transaction type is not supported")
+                        } else {
+                            val signatureData = Sign.SignatureData(sig.v, sig.r, sig.s)
+                            val eip155SignatureData =
+                                TransactionEncoder.createEip155SignatureData(signatureData, chainId)
+                            val values = asRlpValues(rawTransaction, eip155SignatureData)
+                            val rlpList = RlpList(values)
+                            val encoded = RlpEncoder.encode(rlpList)
+                            val hexString = "0x" + encoded.toHex()
+                            val ethSendRawTransaction =
+                                web3j.ethSendRawTransaction(hexString).sendAsync().get()
+                            val error = ethSendRawTransaction.error
+
+                            if (error != null) {
+                                wcClient.rejectRequest(id, error.message)
+                            } else {
+                                wcClient.approveRequest(id, ethSendRawTransaction.transactionHash)
+                            }
+                        }
                     }
                 } catch (e: Exception) {
                     wcClient.rejectRequest(id)
@@ -842,6 +867,8 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 break
             v[0]++
         }
+
+        v[0] = v[0].plus(27).toByte()
 
         return RSV(r, s, v, signature.sigCounter, signature.globalSigCounter)
     }
