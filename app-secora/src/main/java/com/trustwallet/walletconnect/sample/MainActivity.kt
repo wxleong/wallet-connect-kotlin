@@ -519,6 +519,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
         nfcKeyHandle.visibility = View.GONE
         nfcKeyHandle.editText?.inputType = InputType.TYPE_CLASS_NUMBER
+        nfcKeyHandle.editText?.setBackgroundColor(Color.TRANSPARENT)
         nfcPinUse.visibility = View.GONE
         nfcPinSet.visibility = View.GONE
         nfcPinVerify.visibility = View.GONE
@@ -557,6 +558,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 nfcKeyHandle.visibility = View.VISIBLE
                 nfcKeyHandle.editText?.inputType = View.AUTOFILL_TYPE_NONE
                 nfcKeyHandle.editText?.setText("0")
+                nfcKeyHandle.editText?.setBackgroundColor(Color.LTGRAY)
                 nfcSeed.visibility = View.VISIBLE
                 nfcPinUse.visibility = View.VISIBLE
             }

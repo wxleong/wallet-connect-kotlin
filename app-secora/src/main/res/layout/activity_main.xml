@@ -71,7 +71,7 @@
                         <com.google.android.material.textfield.TextInputEditText
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:backgroundTint="@android:color/white"
+                            android:background="@android:color/transparent"
                             android:hint="WalletConnect Uri"
                             android:maxLines="1"
                             android:singleLine="true"
@@ -87,7 +87,7 @@
                         <com.google.android.material.textfield.TextInputEditText
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:backgroundTint="@android:color/white"
+                            android:background="@android:color/transparent"
                             android:clickable="false"
                             android:hint="Address"
                             android:maxLines="1"
@@ -104,7 +104,7 @@
                         <com.google.android.material.textfield.TextInputEditText
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:backgroundTint="@android:color/white"
+                            android:background="@android:color/transparent"
                             android:hint="Chain ID"
                             android:inputType="numberDecimal"
                             android:maxLines="1"
@@ -220,7 +220,7 @@
                         <com.google.android.material.textfield.TextInputEditText
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:backgroundTint="@android:color/white"
+                            android:background="@android:color/transparent"
                             android:hint="Key handle (0-99)"
                             android:inputType="number"
                             android:maxLines="1"
@@ -238,7 +238,7 @@
                         <com.google.android.material.textfield.TextInputEditText
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:backgroundTint="@android:color/white"
+                            android:background="@android:color/transparent"
                             android:hint="PIN (4-62B hex value) (0: PIN not set)"
                             android:inputType="text"
                             android:maxLines="1"
@@ -257,7 +257,7 @@
                         <com.google.android.material.textfield.TextInputEditText
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:backgroundTint="@android:color/white"
+                            android:background="@android:color/transparent"
                             android:hint="Set PIN (4-62B hex value)"
                             android:inputType="text"
                             android:maxLines="1"
@@ -276,7 +276,7 @@
                         <com.google.android.material.textfield.TextInputEditText
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:backgroundTint="@android:color/white"
+                            android:background="@android:color/transparent"
                             android:hint="PIN (4-62B hex value)"
                             android:inputType="text"
                             android:maxLines="1"
@@ -314,7 +314,7 @@
                         <com.google.android.material.textfield.TextInputEditText
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:backgroundTint="@android:color/white"
+                            android:background="@android:color/transparent"
                             android:hint="Current PIN (4-62B hex value)"
                             android:inputType="text"
                             android:maxLines="1"
@@ -333,7 +333,7 @@
                         <com.google.android.material.textfield.TextInputEditText
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:backgroundTint="@android:color/white"
+                            android:background="@android:color/transparent"
                             android:hint="New PIN (4-62B hex value)"
                             android:inputType="text"
                             android:maxLines="1"
@@ -352,7 +352,7 @@
                         <com.google.android.material.textfield.TextInputEditText
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:backgroundTint="@android:color/white"
+                            android:background="@android:color/transparent"
                             android:hint="Seed (16B hex value)"
                             android:inputType="text"
                             android:maxLength="32"
@@ -371,7 +371,7 @@
                         <com.google.android.material.textfield.TextInputEditText
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:backgroundTint="@android:color/white"
+                            android:background="@android:color/transparent"
                             android:hint="32B data to sign"
                             android:inputType="text"
                             android:maxLength="64"
