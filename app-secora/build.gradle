@@ -42,7 +42,7 @@ dependencies {
 
     implementation "com.trustwallet:wallet-core:2.9.5"
 
-    implementation "com.github.infineon:secora-blockchain-apdu:1.0.0"
+    implementation "com.github.wxleong:secora-blockchain-apdu:develop-genesis-SNAPSHOT"
     implementation "com.github.yuriy-budiyev:code-scanner:2.3.2"
     implementation "org.web3j:core:4.8.7-android"
 }
