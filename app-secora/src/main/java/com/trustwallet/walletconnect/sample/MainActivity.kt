@@ -2,6 +2,7 @@ package com.trustwallet.walletconnect.sample
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.graphics.Color
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.nfc.tech.IsoDep
@@ -82,8 +83,6 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
     private var remotePeerMeta: WCPeerMeta? = null
 
-    private lateinit var web3j: Web3j
-
     private data class RSV(val r: ByteArray, val s: ByteArray, val v: ByteArray,
                    val sigCounter: ByteArray, val globalSigCounter: ByteArray)
 
@@ -100,18 +99,17 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
         /* Set up NFC */
 
-        val spinner: Spinner = findViewById(R.id.nfc_spinner)
-        spinner.onItemSelectedListener = this
+        binding.nfcSpinner.onItemSelectedListener = this
         ArrayAdapter.createFromResource(
             this,
             R.array.nfc_actions,
             android.R.layout.simple_spinner_item
         ).also { adapter ->
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-            spinner.adapter = adapter
+            binding.nfcSpinner.adapter = adapter
         }
         action = Actions.READ_OR_CREATE_KEYPAIR
-        findViewById<TextInputLayout?>(R.id.nfc_keyhandle).visibility = View.VISIBLE
+        binding.nfcKeyhandle.visibility = View.VISIBLE
 
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
         if (nfcAdapter == null) {
@@ -181,12 +179,6 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         wcClient.onSignTransaction = { id, transaction -> onSignTransaction(id, transaction) }
 
         setupConnectButton()
-
-        /* Set up web3j */
-
-        //web3j = Web3j.build(HttpService("https://mainnet.infura.io/v3/7b40d72779e541a498cb0da69aa418a2"))
-        /* https://blastapi.io/public-api/ethereum */
-        web3j = Web3j.build(HttpService("https://eth-mainnet.public.blastapi.io"))
     }
 
     private fun setupConnectButton() {
@@ -353,9 +345,26 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
     private fun onEthTransaction(id: Long, payload: WCEthereumTransaction, send: Boolean = false) {
         runOnUiThread {
+            val chainId = (binding.chainInput.editText?.text?.toString() ?: "1").toLong()
+            val web3j: Web3j
+
+            when (chainId) {
+                1.toLong() -> {
+                    /* https://www.infura.io/
+                       or
+                       https://blastapi.io/public-api/ethereum */
+                    //web3j = Web3j.build(HttpService("https://mainnet.infura.io/v3/7b40d72779e541a498cb0da69aa418a2"))
+                    web3j = Web3j.build(HttpService("https://eth-mainnet.public.blastapi.io"))
+                }
+                else -> {
+                    wcClient.rejectRequest(id, "ChainId ${chainId} is not supported")
+                    return@runOnUiThread
+                }
+            }
+
+
             val address = binding.addressInput.editText?.text?.toString() ?: address
             val balance = web3j.ethGetBalance(address, DefaultBlockParameterName.LATEST).sendAsync().get().balance.toString(10)
-            val chainId = (binding.chainInput.editText?.text?.toString() ?: "1").toLong()
             val nonce = web3j.ethGetTransactionCount(address, DefaultBlockParameterName.PENDING).sendAsync().get().transactionCount
             val gasPrice = if (payload.gasPrice != null) {
                 if (payload.gasPrice!!.startsWith("0x")) {
@@ -515,6 +524,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         nfcPinVerify.visibility = View.GONE
         nfcPuk.visibility = View.GONE
         nfcPuk.editText?.inputType = InputType.TYPE_CLASS_TEXT
+        nfcPuk.editText?.setBackgroundColor(Color.TRANSPARENT)
         nfcPinCur.visibility = View.GONE
         nfcPinNew.visibility = View.GONE
         nfcSeed.visibility = View.GONE
@@ -560,6 +570,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 nfcPuk.visibility = View.VISIBLE
                 nfcPuk.editText?.inputType = InputType.TYPE_NULL
                 nfcPuk.editText?.setTextIsSelectable(true)
+                nfcPuk.editText?.setBackgroundColor(Color.LTGRAY)
             }
             Actions.CHANGE_PIN -> {
                 nfcPinCur.visibility = View.VISIBLE
@@ -567,6 +578,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 nfcPuk.visibility = View.VISIBLE
                 nfcPuk.editText?.inputType = InputType.TYPE_NULL
                 nfcPuk.editText?.setTextIsSelectable(true)
+                nfcPuk.editText?.setBackgroundColor(Color.LTGRAY)
             }
             Actions.VERIFY_PIN -> {
                 nfcPinVerify.visibility = View.VISIBLE
