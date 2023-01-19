@@ -57,30 +57,33 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
     /* The order of this enum has to be consistent with the
        nfc_actions string-array from strings.xml */
-    enum class Actions {
+    private enum class Actions {
         READ_OR_CREATE_KEYPAIR, GEN_KEYPAIR_FROM_SEED,
         SIGN_MESSAGE, SET_PIN, CHANGE_PIN, UNLOCK_PIN
     }
 
-    private lateinit var binding: ActivityMainBinding
-    private var action: Actions = Actions.READ_OR_CREATE_KEYPAIR
-    private var nfcCallback: ((IsoTagWrapper)->Unit) =
-        { isoTagWrapper -> nfcDefaultCallback(isoTagWrapper) }
-    private lateinit var nfcAdapter: NfcAdapter
-    private lateinit var pendingIntent: PendingIntent
-    private lateinit var codeScanner: CodeScanner
-    private var address = ""
-    private var alertDialogPin = "0"
+    private data class SignatureDataObject(val r: ByteArray, val s: ByteArray, val v: ByteArray,
+                                           val sigCounter: ByteArray, val globalSigCounter: ByteArray)
+    private data class DialogDataObject(val alertDialog: AlertDialog, val view: View)
+
     private val peerMeta = WCPeerMeta(name = "Example", url = "https://example.com")
-    private lateinit var wcSession: WCSession
-    private var alertDialog: AlertDialog? = null
-    private var remotePeerMeta: WCPeerMeta? = null
-    private data class RSV(val r: ByteArray, val s: ByteArray, val v: ByteArray,
-                           val sigCounter: ByteArray, val globalSigCounter: ByteArray)
-    private data class DialogObject(val alertDialog: AlertDialog, val view: View)
     private val wcClient by lazy {
         WCClient(GsonBuilder(), OkHttpClient())
     }
+
+    private lateinit var binding: ActivityMainBinding
+    private lateinit var nfcAdapter: NfcAdapter
+    private lateinit var pendingIntent: PendingIntent
+    private lateinit var codeScanner: CodeScanner
+    private lateinit var wcSession: WCSession
+
+    private var address = ""
+    private var alertDialogPin = "0"
+    private var alertDialog: AlertDialog? = null
+    private var remotePeerMeta: WCPeerMeta? = null
+    private var action: Actions = Actions.READ_OR_CREATE_KEYPAIR
+    private var nfcCallback: ((IsoTagWrapper)->Unit) =
+        { isoTagWrapper -> nfcDefaultCallback(isoTagWrapper) }
 
     companion object {
         init {
@@ -177,6 +180,126 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         setupConnectButton()
     }
 
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        try {
+            val tag: Tag? = intent!!.getParcelableExtra(NfcAdapter.EXTRA_TAG)
+            val isoDep = IsoDep.get(tag) /* ISO 14443-4 Type A & B */
+
+            nfcCallback?.let { it(IsoTagWrapper(isoDep)) }
+
+            isoDep.close()
+        } catch (e: Exception) {
+            Toast.makeText(this, e.toString(), Toast.LENGTH_LONG).show()
+        } finally {
+            nfcCallback = { isoTagWrapper -> nfcDefaultCallback(isoTagWrapper) }
+        }
+    }
+
+    override fun onItemSelected(parent: AdapterView<*>, view: View?, pos: Int, id: Long) {
+        /* An item was selected. You can retrieve the selected item using
+           parent.getItemAtPosition(pos) */
+        action = Actions.values()[pos]
+
+        val nfcKeyHandle: TextInputLayout = binding.nfcKeyhandle
+        val nfcPinUse: TextInputLayout = binding.nfcPinUse
+        val nfcPinSet: TextInputLayout = binding.nfcPinSet
+        val nfcPuk: TextInputLayout = binding.nfcPuk
+        val nfcPinCur: TextInputLayout = binding.nfcPinCur
+        val nfcPinNew: TextInputLayout = binding.nfcPinNew
+        val nfcSeed: TextInputLayout = binding.nfcSeed
+        val nfcMessage: TextInputLayout = binding.nfcMessage
+
+        nfcKeyHandle.visibility = View.GONE
+        nfcKeyHandle.editText?.inputType = InputType.TYPE_CLASS_NUMBER
+        nfcKeyHandle.editText?.setBackgroundColor(Color.TRANSPARENT)
+        nfcPinUse.visibility = View.GONE
+        nfcPinSet.visibility = View.GONE
+        nfcPuk.visibility = View.GONE
+        nfcPuk.editText?.inputType = InputType.TYPE_CLASS_TEXT
+        nfcPuk.editText?.setBackgroundColor(Color.TRANSPARENT)
+        nfcPinCur.visibility = View.GONE
+        nfcPinNew.visibility = View.GONE
+        nfcSeed.visibility = View.GONE
+        nfcMessage.visibility = View.GONE
+
+        if (nfcKeyHandle.editText?.text.toString() == "")
+            nfcKeyHandle.editText?.setText("1")
+        if (nfcPinUse.editText?.text.toString() == "")
+            nfcPinUse.editText?.setText("0")
+        if (nfcPinSet.editText?.text.toString() == "")
+            nfcPinSet.editText?.setText("00000000")
+        if (nfcPuk.editText?.text.toString() == "")
+            nfcPuk.editText?.setText("0000000000000000")
+        if (nfcPinCur.editText?.text.toString() == "")
+            nfcPinCur.editText?.setText("00000000")
+        if (nfcPinNew.editText?.text.toString() == "")
+            nfcPinNew.editText?.setText("00000000")
+        if (nfcSeed.editText?.text.toString() == "")
+            nfcSeed.editText?.setText("00112233445566778899AABBCCDDEEFF")
+        if (nfcMessage.editText?.text.toString() == "")
+            nfcMessage.editText?.setText("00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF")
+
+        when (action) {
+            Actions.READ_OR_CREATE_KEYPAIR -> {
+                nfcKeyHandle.visibility = View.VISIBLE
+            }
+            Actions.GEN_KEYPAIR_FROM_SEED -> {
+                nfcKeyHandle.visibility = View.VISIBLE
+                nfcKeyHandle.editText?.inputType = View.AUTOFILL_TYPE_NONE
+                nfcKeyHandle.editText?.setText("0")
+                nfcKeyHandle.editText?.setBackgroundColor(Color.LTGRAY)
+                nfcSeed.visibility = View.VISIBLE
+                nfcPinUse.visibility = View.VISIBLE
+            }
+            Actions.SIGN_MESSAGE -> {
+                nfcKeyHandle.visibility = View.VISIBLE
+                nfcPinUse.visibility = View.VISIBLE
+                nfcMessage.visibility =View.VISIBLE
+            }
+            Actions.SET_PIN -> {
+                nfcPinSet.visibility = View.VISIBLE
+                nfcPuk.visibility = View.VISIBLE
+                nfcPuk.editText?.inputType = InputType.TYPE_NULL
+                nfcPuk.editText?.setTextIsSelectable(true)
+                nfcPuk.editText?.setBackgroundColor(Color.LTGRAY)
+            }
+            Actions.CHANGE_PIN -> {
+                nfcPinCur.visibility = View.VISIBLE
+                nfcPinNew.visibility = View.VISIBLE
+                nfcPuk.visibility = View.VISIBLE
+                nfcPuk.editText?.inputType = InputType.TYPE_NULL
+                nfcPuk.editText?.setTextIsSelectable(true)
+                nfcPuk.editText?.setBackgroundColor(Color.LTGRAY)
+            }
+            Actions.UNLOCK_PIN -> {
+                nfcPuk.visibility = View.VISIBLE
+            }
+            else -> {
+
+            }
+        }
+    }
+
+    override fun onNothingSelected(parent: AdapterView<*>) { }
+
+    override fun onResume() {
+        super.onResume()
+        if (nfcAdapter != null) {
+            if (!nfcAdapter!!.isEnabled()) {
+                openNfcSettings();
+            }
+            nfcAdapter!!.enableForegroundDispatch(this, pendingIntent, null, null)
+        }
+    }
+
+    override fun onPause() {
+        codeScanner.releaseResources()
+        binding.scannerFrame.visibility = View.GONE
+        super.onPause()
+    }
+
     private fun setupConnectButton() {
         runOnUiThread {
             binding.connectButton.text = "Connect"
@@ -205,13 +328,13 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         }
     }
 
-    fun connect(uri: String) {
+    private fun connect(uri: String) {
         disconnect()
         wcSession = WCSession.from(uri) ?: throw InvalidSessionException()
         wcClient.connect(wcSession, peerMeta)
     }
 
-    fun disconnect() {
+    private fun disconnect() {
         if (wcClient.session != null) {
             wcClient.killSession()
         } else {
@@ -219,7 +342,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         }
     }
 
-    fun approveSession() {
+    private fun approveSession() {
         val address = binding.addressInput.editText?.text?.toString() ?: address
         val chainId = binding.chainInput.editText?.text?.toString()?.toIntOrNull() ?: 1
         wcClient.approveSession(listOf(address), chainId)
@@ -229,12 +352,12 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         }
     }
 
-    fun rejectSession() {
+    private fun rejectSession() {
         wcClient.rejectSession()
         wcClient.disconnect()
     }
 
-    fun rejectRequest(id: Long) {
+    private fun rejectRequest(id: Long) {
         wcClient.rejectRequest(id, "User canceled")
     }
 
@@ -439,13 +562,33 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         }
     }
 
-    private fun onBnbTrade(id: Long, order: WCBinanceTradeOrder) { }
+    private fun onBnbTrade(id: Long, order: WCBinanceTradeOrder) {
+        createAndShowDefaultDialog("Warning",
+            "bnb_sign is not implemented.",
+            "Dismiss", null,
+            null, null)
+    }
 
-    private fun onBnbCancel(id: Long, order: WCBinanceCancelOrder) { }
+    private fun onBnbCancel(id: Long, order: WCBinanceCancelOrder) {
+        createAndShowDefaultDialog("Warning",
+            "bnb_sign is not implemented.",
+            "Dismiss", null,
+            null, null)
+    }
 
-    private fun onBnbTransfer(id: Long, order: WCBinanceTransferOrder) { }
+    private fun onBnbTransfer(id: Long, order: WCBinanceTransferOrder) {
+        createAndShowDefaultDialog("Warning",
+            "bnb_sign is not implemented.",
+            "Dismiss", null,
+            null, null)
+    }
 
-    private fun onBnbTxConfirm(param: WCBinanceTxConfirmParam) { }
+    private fun onBnbTxConfirm(param: WCBinanceTxConfirmParam) {
+        createAndShowDefaultDialog("Warning",
+            "bnb_tx_confirmation is not implemented.",
+            "Dismiss", null,
+            null, null)
+    }
 
     private fun onGetAccounts(id: Long) {
         val account = WCAccount(
@@ -455,134 +598,20 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         wcClient.approveRequest(id, account)
     }
 
-    private fun onSignTransaction(id: Long, payload: WCSignTransaction) { }
+    private fun onSignTransaction(id: Long, payload: WCSignTransaction) {
+        createAndShowDefaultDialog("Warning",
+            "trust_signTransaction is not implemented.",
+            "Dismiss", null,
+            null, null)
+    }
 
-    fun String.decodeHex(): ByteArray {
+    private fun String.decodeHex(): ByteArray {
         check(length % 2 == 0) { "Must have an even length" }
 
         return removePrefix("0x")
             .chunked(2)
             .map { it.toInt(16).toByte() }
             .toByteArray()
-    }
-
-    override fun onNewIntent(intent: Intent?) {
-        super.onNewIntent(intent)
-        try {
-            val tag: Tag? = intent!!.getParcelableExtra(NfcAdapter.EXTRA_TAG)
-            val isoDep = IsoDep.get(tag) /* ISO 14443-4 Type A & B */
-
-            nfcCallback?.let { it(IsoTagWrapper(isoDep)) }
-
-            isoDep.close()
-        } catch (e: Exception) {
-            Toast.makeText(this, e.toString(), Toast.LENGTH_LONG).show()
-        } finally {
-            nfcCallback = { isoTagWrapper -> nfcDefaultCallback(isoTagWrapper) }
-        }
-    }
-
-    override fun onItemSelected(parent: AdapterView<*>, view: View?, pos: Int, id: Long) {
-        /* An item was selected. You can retrieve the selected item using
-           parent.getItemAtPosition(pos) */
-        action = Actions.values()[pos]
-
-        val nfcKeyHandle: TextInputLayout = binding.nfcKeyhandle
-        val nfcPinUse: TextInputLayout = binding.nfcPinUse
-        val nfcPinSet: TextInputLayout = binding.nfcPinSet
-        val nfcPuk: TextInputLayout = binding.nfcPuk
-        val nfcPinCur: TextInputLayout = binding.nfcPinCur
-        val nfcPinNew: TextInputLayout = binding.nfcPinNew
-        val nfcSeed: TextInputLayout = binding.nfcSeed
-        val nfcMessage: TextInputLayout = binding.nfcMessage
-
-        nfcKeyHandle.visibility = View.GONE
-        nfcKeyHandle.editText?.inputType = InputType.TYPE_CLASS_NUMBER
-        nfcKeyHandle.editText?.setBackgroundColor(Color.TRANSPARENT)
-        nfcPinUse.visibility = View.GONE
-        nfcPinSet.visibility = View.GONE
-        nfcPuk.visibility = View.GONE
-        nfcPuk.editText?.inputType = InputType.TYPE_CLASS_TEXT
-        nfcPuk.editText?.setBackgroundColor(Color.TRANSPARENT)
-        nfcPinCur.visibility = View.GONE
-        nfcPinNew.visibility = View.GONE
-        nfcSeed.visibility = View.GONE
-        nfcMessage.visibility = View.GONE
-
-        if (nfcKeyHandle.editText?.text.toString() == "")
-            nfcKeyHandle.editText?.setText("1")
-        if (nfcPinUse.editText?.text.toString() == "")
-            nfcPinUse.editText?.setText("0")
-        if (nfcPinSet.editText?.text.toString() == "")
-            nfcPinSet.editText?.setText("00000000")
-        if (nfcPuk.editText?.text.toString() == "")
-            nfcPuk.editText?.setText("0000000000000000")
-        if (nfcPinCur.editText?.text.toString() == "")
-            nfcPinCur.editText?.setText("00000000")
-        if (nfcPinNew.editText?.text.toString() == "")
-            nfcPinNew.editText?.setText("00000000")
-        if (nfcSeed.editText?.text.toString() == "")
-            nfcSeed.editText?.setText("00112233445566778899AABBCCDDEEFF")
-        if (nfcMessage.editText?.text.toString() == "")
-            nfcMessage.editText?.setText("00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF")
-
-        when (action) {
-            Actions.READ_OR_CREATE_KEYPAIR -> {
-                nfcKeyHandle.visibility = View.VISIBLE
-            }
-            Actions.GEN_KEYPAIR_FROM_SEED -> {
-                nfcKeyHandle.visibility = View.VISIBLE
-                nfcKeyHandle.editText?.inputType = View.AUTOFILL_TYPE_NONE
-                nfcKeyHandle.editText?.setText("0")
-                nfcKeyHandle.editText?.setBackgroundColor(Color.LTGRAY)
-                nfcSeed.visibility = View.VISIBLE
-                nfcPinUse.visibility = View.VISIBLE
-            }
-            Actions.SIGN_MESSAGE -> {
-                nfcKeyHandle.visibility = View.VISIBLE
-                nfcPinUse.visibility = View.VISIBLE
-                nfcMessage.visibility =View.VISIBLE
-            }
-            Actions.SET_PIN -> {
-                nfcPinSet.visibility = View.VISIBLE
-                nfcPuk.visibility = View.VISIBLE
-                nfcPuk.editText?.inputType = InputType.TYPE_NULL
-                nfcPuk.editText?.setTextIsSelectable(true)
-                nfcPuk.editText?.setBackgroundColor(Color.LTGRAY)
-            }
-            Actions.CHANGE_PIN -> {
-                nfcPinCur.visibility = View.VISIBLE
-                nfcPinNew.visibility = View.VISIBLE
-                nfcPuk.visibility = View.VISIBLE
-                nfcPuk.editText?.inputType = InputType.TYPE_NULL
-                nfcPuk.editText?.setTextIsSelectable(true)
-                nfcPuk.editText?.setBackgroundColor(Color.LTGRAY)
-            }
-            Actions.UNLOCK_PIN -> {
-                nfcPuk.visibility = View.VISIBLE
-            }
-            else -> {
-
-            }
-        }
-    }
-
-    override fun onNothingSelected(parent: AdapterView<*>) { }
-
-    override fun onResume() {
-        super.onResume()
-        if (nfcAdapter != null) {
-            if (!nfcAdapter!!.isEnabled()) {
-                openNfcSettings();
-            }
-            nfcAdapter!!.enableForegroundDispatch(this, pendingIntent, null, null)
-        }
-    }
-
-    override fun onPause() {
-        codeScanner.releaseResources()
-        binding.scannerFrame.visibility = View.GONE
-        super.onPause()
     }
 
     private fun openNfcSettings() {
@@ -754,7 +783,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
     }
 
     private fun signing(isoTagWrapper: IsoTagWrapper, keyHandle: Int,
-                        pin: ByteArray?, data: ByteArray): RSV {
+                        pin: ByteArray?, data: ByteArray): SignatureDataObject {
 
         val signature = NfcUtils.generateSignature(isoTagWrapper, keyHandle, data, pin)
         var asn1Signature = signature.signature.toHex()
@@ -810,7 +839,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
         v[0] = v[0].plus(27).toByte()
 
-        return RSV(r, s, v, signature.sigCounter, signature.globalSigCounter)
+        return SignatureDataObject(r, s, v, signature.sigCounter, signature.globalSigCounter)
     }
 
     private fun createAndShowDefaultDialog(
@@ -838,7 +867,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         alertDialog = alertDialogBuilder.show()
     }
 
-    private fun createAndShowCustomDialog(id: Long, title: String, message: String): DialogObject {
+    private fun createAndShowCustomDialog(id: Long, title: String, message: String): DialogDataObject {
 
         if (alertDialog != null && alertDialog!!.isShowing) {
             alertDialog!!.dismiss()
@@ -866,6 +895,6 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         alertDialog!!.show()
         alertDialog!!.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
 
-        return DialogObject(alertDialog!!, alertDialogView)
+        return DialogDataObject(alertDialog!!, alertDialogView)
     }
 }
