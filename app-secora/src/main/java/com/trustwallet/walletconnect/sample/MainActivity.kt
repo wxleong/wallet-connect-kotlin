@@ -858,6 +858,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
             }
             .setOnDismissListener {
                 rejectRequest(id)
+                nfcCallback = { isoTagWrapper -> nfcDefaultCallback(isoTagWrapper) }
             }
             .create()
 
