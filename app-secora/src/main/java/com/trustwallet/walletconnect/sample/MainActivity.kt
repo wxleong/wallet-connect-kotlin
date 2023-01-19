@@ -1,6 +1,7 @@
 package com.trustwallet.walletconnect.sample
 
 import android.app.PendingIntent
+import android.content.DialogInterface
 import android.content.Intent
 import android.graphics.Color
 import android.nfc.NfcAdapter
@@ -10,7 +11,10 @@ import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
 import android.view.View
-import android.widget.*
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
+import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.budiyev.android.codescanner.*
@@ -66,8 +70,10 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
     private lateinit var pendingIntent: PendingIntent
     private lateinit var codeScanner: CodeScanner
     private var address = ""
+    private var alertDialogPin = "0"
     private val peerMeta = WCPeerMeta(name = "Example", url = "https://example.com")
     private lateinit var wcSession: WCSession
+    private var alertDialog: AlertDialog? = null
     private var remotePeerMeta: WCPeerMeta? = null
     private data class RSV(val r: ByteArray, val s: ByteArray, val v: ByteArray,
                            val sigCounter: ByteArray, val globalSigCounter: ByteArray)
@@ -229,16 +235,17 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 return@runOnUiThread
             }
             val meta = remotePeerMeta ?: return@runOnUiThread
-            AlertDialog.Builder(this)
-                .setTitle(meta.name)
-                .setMessage("${meta.description}\n${meta.url}")
-                .setPositiveButton("Approve") { _, _ ->
+
+            createAndShowDefaultDialog(meta.name,
+                "${meta.description}\n${meta.url}",
+                "Approve",
+                { _, _ ->
                     approveSession()
-                }
-                .setNegativeButton("Reject") { _, _ ->
+                },
+                "Reject",
+                { _, _ ->
                     rejectSession()
-                }
-                .show()
+                })
         }
     }
 
@@ -271,7 +278,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 }
             }
 
-            val alertDialogObject = macroCreateDialog(id, message.type.name, dialogMessage)
+            val alertDialogObject = createAndShowCustomDialog(id, message.type.name, dialogMessage)
 
             nfcCallback = { isoTagWrapper ->
                 try {
@@ -302,13 +309,13 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     }
 
                     val keyHandle = binding.nfcKeyhandle.editText?.text.toString()
-                    val pinUse = alertDialogObject.view.findViewById<TextInputLayout>(R.id.dialogPinInput).editText?.text.toString()
-                    val pin = if (pinUse != "0") {
-                        pinUse.decodeHex()
+                    alertDialogPin = alertDialogObject.view.findViewById<TextInputLayout>(R.id.dialogPinInput).editText?.text.toString()
+                    val pin = if (alertDialogPin != "0") {
+                        alertDialogPin.decodeHex()
                     } else {
                         null
                     }
-                    val sig = macroSign(isoTagWrapper, Integer.parseInt(keyHandle), pin, byteArrayToSign)
+                    val sig = signing(isoTagWrapper, Integer.parseInt(keyHandle), pin, byteArrayToSign)
                     val rsv = sig.r + sig.s + sig.v
 
                     wcClient.approveRequest(id, "0x" + rsv.toHex())
@@ -341,9 +348,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 }
             }
 
-
             val address = binding.addressInput.editText?.text?.toString() ?: address
-            val balance = web3j.ethGetBalance(address, DefaultBlockParameterName.LATEST).sendAsync().get().balance.toString(10)
             val nonce = web3j.ethGetTransactionCount(address, DefaultBlockParameterName.PENDING).sendAsync().get().transactionCount
             val gasPrice = if (payload.gasPrice != null) {
                 if (payload.gasPrice!!.startsWith("0x")) {
@@ -379,18 +384,18 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
             val byteArrayToSign = Hash.keccak256(encodedTransaction)
             val payloadPreview = Gson().toJson(rawTransaction, RawTransaction::class.java)
 
-            val alertDialogObject = macroCreateDialog(id, "Transaction", payloadPreview.toString())
+            val alertDialogObject = createAndShowCustomDialog(id, "Transaction", payloadPreview.toString())
 
             nfcCallback = { isoTagWrapper ->
                 try {
                     val keyHandle = binding.nfcKeyhandle.editText?.text.toString()
-                    val pinUse = alertDialogObject.view.findViewById<TextInputLayout>(R.id.dialogPinInput).editText?.text.toString()
-                    val pin = if (pinUse != "0") {
-                        pinUse.decodeHex()
+                    alertDialogPin = alertDialogObject.view.findViewById<TextInputLayout>(R.id.dialogPinInput).editText?.text.toString()
+                    val pin = if (alertDialogPin != "0") {
+                        alertDialogPin.decodeHex()
                     } else {
                         null
                     }
-                    val sig = macroSign(isoTagWrapper, Integer.parseInt(keyHandle), pin, byteArrayToSign)
+                    val sig = signing(isoTagWrapper, Integer.parseInt(keyHandle), pin, byteArrayToSign)
 
                     if (!send) {
                         val rsv = sig.r + sig.s + sig.v
@@ -418,7 +423,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         }
                     }
                 } catch (e: Exception) {
-                    wcClient.rejectRequest(id)
+                    wcClient.rejectRequest(id, e.message.toString())
                     throw e
                 } finally {
                     alertDialogObject.alertDialog.dismiss()
@@ -615,17 +620,12 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
                     binding.addressInput.editText?.setText(address)
 
-                    AlertDialog.Builder(this)
-                        .setTitle("Response")
-                        .setMessage(
-                            "Address:\n$address\n\n" +
-                            "Signature counter:\n${Integer.decode("0x" + pubkey.sigCounter.toHex())}\n\n" +
-                            "Global signature counter:\n${Integer.decode("0x" + pubkey.globalSigCounter.toHex())}"
-                        )
-                        .setPositiveButton("Dismiss") { dialog, _ ->
-                            dialog.dismiss()
-                        }
-                        .show()
+                    createAndShowDefaultDialog("Response",
+                        "Address:\n$address\n\n" +
+                                "Signature counter:\n${Integer.decode("0x" + pubkey.sigCounter.toHex())}\n\n" +
+                                "Global signature counter:\n${Integer.decode("0x" + pubkey.globalSigCounter.toHex())}",
+                        "Dismiss", null,
+                        null, null)
                 }
                 Actions.GEN_KEYPAIR_FROM_SEED -> {
 
@@ -654,17 +654,12 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
                     binding.addressInput.editText?.setText(address)
 
-                    AlertDialog.Builder(this)
-                        .setTitle("Response")
-                        .setMessage(
-                            "Address:\n$address\n\n" +
-                            "Signature counter:\n${Integer.decode("0x" + pubkey.sigCounter.toHex())}\n\n" +
-                            "Global signature counter:\n${Integer.decode("0x" + pubkey.globalSigCounter.toHex())}"
-                        )
-                        .setPositiveButton("Dismiss") { dialog, _ ->
-                            dialog.dismiss()
-                        }
-                        .show()
+                    createAndShowDefaultDialog("Response",
+                        "Address:\n$address\n\n" +
+                                "Signature counter:\n${Integer.decode("0x" + pubkey.sigCounter.toHex())}\n\n" +
+                                "Global signature counter:\n${Integer.decode("0x" + pubkey.globalSigCounter.toHex())}",
+                        "Dismiss", null,
+                        null, null)
                 }
                 Actions.SIGN_MESSAGE -> {
 
@@ -673,53 +668,38 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     } else {
                         null
                     }
-                    val sig = macroSign(isoTagWrapper, Integer.parseInt(keyHandle), pin, message.decodeHex())
+                    val sig = signing(isoTagWrapper, Integer.parseInt(keyHandle), pin, message.decodeHex())
                     val rsv = sig.r + sig.s + sig.v
 
-                    AlertDialog.Builder(this)
-                        .setTitle("Response")
-                        .setMessage(
-                            "Signature (ASN.1):\n${rsv.toHex()}\n\n" +
-                            "r:\n${sig.r.toHex()}\n\n" +
-                            "s:\n${sig.s.toHex()}\n\n" +
-                            "v:\n${sig.v.toHex()}\n\n" +
-                            "Signature counter:\n${Integer.decode("0x" + sig.sigCounter.toHex())}\n\n" +
-                            "Global signature counter:\n${Integer.decode("0x" + sig.globalSigCounter.toHex())}"
-                        )
-                        .setPositiveButton("Dismiss") { dialog, _ ->
-                            dialog.dismiss()
-                        }
-                        .show()
+                    createAndShowDefaultDialog("Response",
+                        "Signature (ASN.1):\n${rsv.toHex()}\n\n" +
+                                "r:\n${sig.r.toHex()}\n\n" +
+                                "s:\n${sig.s.toHex()}\n\n" +
+                                "v:\n${sig.v.toHex()}\n\n" +
+                                "Signature counter:\n${Integer.decode("0x" + sig.sigCounter.toHex())}\n\n" +
+                                "Global signature counter:\n${Integer.decode("0x" + sig.globalSigCounter.toHex())}",
+                        "Dismiss", null,
+                        null, null)
                 }
                 Actions.SET_PIN -> {
                     val puk = NfcUtils.initializePinAndReturnPuk(isoTagWrapper, pinSet.decodeHex())
                     binding.nfcPuk.editText?.setText(puk.toHex())
 
-                    AlertDialog.Builder(this)
-                        .setTitle("Response")
-                        .setMessage(
-                            "Remember the PUK:\n${puk.toHex()}\n\n" +
-                            "and the PIN:\n${pinSet}"
-                        )
-                        .setPositiveButton("Dismiss") { dialog, _ ->
-                            dialog.dismiss()
-                        }
-                        .show()
+                    createAndShowDefaultDialog("Response",
+                        "Remember the PUK:\n${puk.toHex()}\n\n" +
+                                "and the PIN:\n${pinSet}",
+                        "Dismiss", null,
+                        null, null)
                 }
                 Actions.CHANGE_PIN -> {
                     val puk = NfcUtils.changePin(isoTagWrapper, pinCur.decodeHex(), pinNew.decodeHex())
                     binding.nfcPuk.editText?.setText(puk.toHex())
 
-                    AlertDialog.Builder(this)
-                        .setTitle("Response")
-                        .setMessage(
-                            "Remember the PUK:\n${puk.toHex()}\n\n" +
-                            "and the PIN:\n${pinNew}"
-                        )
-                        .setPositiveButton("Dismiss") { dialog, _ ->
-                            dialog.dismiss()
-                        }
-                        .show()
+                    createAndShowDefaultDialog("Response",
+                        "Remember the PUK:\n${puk.toHex()}\n\n" +
+                        "and the PIN:\n${pinNew}",
+                        "Dismiss", null,
+                        null, null)
                 }
                 Actions.VERIFY_PIN -> {
                     /* A bug in com.github.infineon:secora-blockchain-apdu:1.0.0
@@ -728,29 +708,19 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     if (!NfcUtils.verifyPin(isoTagWrapper, pinVerify.decodeHex()))
                         throw Exception("Invalid PIN")
 
-                    AlertDialog.Builder(this)
-                        .setTitle("Response")
-                        .setMessage(
-                            "PIN verification passed"
-                        )
-                        .setPositiveButton("Dismiss") { dialog, _ ->
-                            dialog.dismiss()
-                        }
-                        .show()
+                    createAndShowDefaultDialog("Response",
+                        "PIN verification passed",
+                        "Dismiss", null,
+                        null, null)
                 }
                 Actions.UNLOCK_PIN -> {
                     if (!NfcUtils.unlockPin(isoTagWrapper, puk.decodeHex()))
                         throw Exception("Invalid PUK")
 
-                    AlertDialog.Builder(this)
-                        .setTitle("Response")
-                        .setMessage(
-                            "PIN Unlocked, remember to set a new PIN"
-                        )
-                        .setPositiveButton("Dismiss") { dialog, _ ->
-                            dialog.dismiss()
-                        }
-                        .show()
+                    createAndShowDefaultDialog("Response",
+                        "PIN Unlocked, remember to set a new PIN",
+                        "Dismiss", null,
+                        null, null)
                 }
                 else -> {
 
@@ -796,8 +766,8 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         return s
     }
 
-    private fun macroSign(isoTagWrapper: IsoTagWrapper, keyHandle: Int,
-                          pin: ByteArray?, data: ByteArray): RSV {
+    private fun signing(isoTagWrapper: IsoTagWrapper, keyHandle: Int,
+                        pin: ByteArray?, data: ByteArray): RSV {
 
         val signature = NfcUtils.generateSignature(isoTagWrapper, keyHandle, data, pin)
         var asn1Signature = signature.signature.toHex()
@@ -856,9 +826,44 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         return RSV(r, s, v, signature.sigCounter, signature.globalSigCounter)
     }
 
-    private fun macroCreateDialog(id: Long, title: String, message: String): DialogObject {
+    private fun createAndShowDefaultDialog(
+        title: String, message: String,
+        positiveBtnText: String?, positiveCallbank: DialogInterface.OnClickListener?,
+        negativeBtnText: String?, negativeCallbank: DialogInterface.OnClickListener?
+    ) {
+
+        if (alertDialog != null && alertDialog!!.isShowing) {
+            alertDialog!!.dismiss()
+        }
+
+        val alertDialogBuilder = AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
+
+        if (positiveBtnText != null) {
+            alertDialogBuilder.setPositiveButton(positiveBtnText, positiveCallbank)
+        }
+
+        if (negativeBtnText != null) {
+            alertDialogBuilder.setNegativeButton(negativeBtnText, negativeCallbank)
+        }
+
+        alertDialog = alertDialogBuilder.show()
+    }
+
+    private fun createAndShowCustomDialog(id: Long, title: String, message: String): DialogObject {
+
+        if (alertDialog != null && alertDialog!!.isShowing) {
+            alertDialog!!.dismiss()
+        }
+
         val inflater = this.layoutInflater;
-        val alertDialog = AlertDialog.Builder(this)
+        val alertDialogView = inflater.inflate(R.layout.alert_dialog, null)
+
+        alertDialogView.findViewById<TextView>(R.id.dialogMessage).text = message
+        alertDialogView.findViewById<TextInputLayout>(R.id.dialogPinInput).editText?.setText(alertDialogPin)
+
+        alertDialog = AlertDialog.Builder(this)
             .setTitle(title)
             .setPositiveButton("Tap Your Card To Sign") { _, _ ->
             }
@@ -869,12 +874,10 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
             }
             .create()
 
-        val alertDialogView = inflater.inflate(R.layout.alert_dialog, null)
-        alertDialogView.findViewById<TextView>(R.id.dialogMessage).text = message
-        alertDialog.setView(alertDialogView)
-        alertDialog.show()
-        alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+        alertDialog!!.setView(alertDialogView)
+        alertDialog!!.show()
+        alertDialog!!.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
 
-        return DialogObject(alertDialog, alertDialogView)
+        return DialogObject(alertDialog!!, alertDialogView)
     }
 }
