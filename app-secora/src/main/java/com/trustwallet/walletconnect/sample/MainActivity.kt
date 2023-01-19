@@ -184,7 +184,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 val uri = binding.uriInput.editText?.text?.toString()
                 val address = binding.addressInput.editText?.text?.toString()
 
-                if (uri != null && uri.commonPrefixWith("wc:") != "wc:") {
+                if (uri.isNullOrBlank() || uri.commonPrefixWith("wc:") != "wc:") {
                     createAndShowDefaultDialog("Reminder",
                         "Please scan WalletConnect QR code.",
                         "Dismiss", null,
@@ -192,7 +192,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     return@setOnClickListener
                 }
 
-                if (address != null && address.commonPrefixWith("0x") != "0x") {
+                if (address.isNullOrBlank() || address.commonPrefixWith("0x") != "0x") {
                     createAndShowDefaultDialog("Reminder",
                         "Please read your card's public key.",
                         "Dismiss", null,
@@ -369,20 +369,20 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
             val address = binding.addressInput.editText?.text?.toString() ?: address
             val nonce = web3j.ethGetTransactionCount(address, DefaultBlockParameterName.PENDING).sendAsync().get().transactionCount
-            val gasPrice = if (payload.gasPrice != null) {
-                BigInteger(payload.gasPrice!!.removePrefix("0x"), 16)
-            } else {
+            val gasPrice = if (payload.gasPrice.isNullOrBlank()) {
                 web3j.ethGasPrice().sendAsync().get().gasPrice
-            }
-            val gasLimit = if (payload.gas != null) {
-                BigInteger(payload.gas!!.removePrefix("0x"), 16)
             } else {
+                BigInteger(payload.gasPrice!!.removePrefix("0x"), 16)
+            }
+            val gasLimit = if (payload.gas.isNullOrBlank()) {
                 web3j.ethGetBlockByNumber(DefaultBlockParameterName.LATEST, false).sendAsync().get().block.gasLimit
-            }
-            var value = if (payload.value != null) {
-                payload.value!!.removePrefix("0x")
             } else {
+                BigInteger(payload.gas!!.removePrefix("0x"), 16)
+            }
+            var value = if (payload.value.isNullOrBlank()) {
                 throw Exception("Field value is null")
+            } else {
+                payload.value!!.removePrefix("0x")
             }
             val rawTransaction = RawTransaction.createTransaction(nonce, gasPrice,
                 gasLimit, payload.to, BigInteger(value, 16),
@@ -827,11 +827,11 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
             .setTitle(title)
             .setMessage(message)
 
-        if (positiveBtnText != null) {
+        if (!positiveBtnText.isNullOrBlank()) {
             alertDialogBuilder.setPositiveButton(positiveBtnText, positiveCallbank)
         }
 
-        if (negativeBtnText != null) {
+        if (!negativeBtnText.isNullOrBlank()) {
             alertDialogBuilder.setNegativeButton(negativeBtnText, negativeCallbank)
         }
 
