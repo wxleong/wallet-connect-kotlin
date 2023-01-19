@@ -58,8 +58,8 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
     /* The order of this enum has to be consistent with the
        nfc_actions string-array from strings.xml */
     enum class Actions {
-        READ_OR_CREATE_KEYPAIR, GEN_KEYPAIR_FROM_SEED, SIGN_MESSAGE,
-        SET_PIN, CHANGE_PIN, VERIFY_PIN, UNLOCK_PIN
+        READ_OR_CREATE_KEYPAIR, GEN_KEYPAIR_FROM_SEED,
+        SIGN_MESSAGE, SET_PIN, CHANGE_PIN, UNLOCK_PIN
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -128,8 +128,8 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         codeScanner.formats = CodeScanner.ALL_FORMATS
         codeScanner.autoFocusMode = AutoFocusMode.SAFE
         codeScanner.scanMode = ScanMode.SINGLE
-        codeScanner.isAutoFocusEnabled = true // Whether to enable auto focus or not
-        codeScanner.isFlashEnabled = false // Whether to enable flash or not
+        codeScanner.isAutoFocusEnabled = true
+        codeScanner.isFlashEnabled = false
 
         codeScanner.decodeCallback = DecodeCallback {
             runOnUiThread {
@@ -181,6 +181,25 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         runOnUiThread {
             binding.connectButton.text = "Connect"
             binding.connectButton.setOnClickListener {
+                val uri = binding.uriInput.editText?.text?.toString()
+                val address = binding.addressInput.editText?.text?.toString()
+
+                if (uri != null && uri.commonPrefixWith("wc:") != "wc:") {
+                    createAndShowDefaultDialog("Reminder",
+                        "Please scan WalletConnect QR code.",
+                        "Dismiss", null,
+                        null, null)
+                    return@setOnClickListener
+                }
+
+                if (address != null && address.commonPrefixWith("0x") != "0x") {
+                    createAndShowDefaultDialog("Reminder",
+                        "Please read your card's public key.",
+                        "Dismiss", null,
+                        null, null)
+                    return@setOnClickListener
+                }
+
                 connect(binding.uriInput.editText?.text?.toString() ?: return@setOnClickListener)
             }
         }
@@ -339,7 +358,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     /* https://www.infura.io/
                        or
                        https://blastapi.io/public-api/ethereum */
-                    //web3j = Web3j.build(HttpService("https://mainnet.infura.io/v3/7b40d72779e541a498cb0da69aa418a2"))
+                    /* web3j = Web3j.build(HttpService("https://mainnet.infura.io/v3/7b40d72779e541a498cb0da69aa418a2")) */
                     web3j = Web3j.build(HttpService("https://eth-mainnet.public.blastapi.io"))
                 }
                 else -> {
@@ -351,29 +370,17 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
             val address = binding.addressInput.editText?.text?.toString() ?: address
             val nonce = web3j.ethGetTransactionCount(address, DefaultBlockParameterName.PENDING).sendAsync().get().transactionCount
             val gasPrice = if (payload.gasPrice != null) {
-                if (payload.gasPrice!!.startsWith("0x")) {
-                    BigInteger(payload.gasPrice!!.substring(2), 16)
-                } else {
-                    BigInteger(payload.gasPrice, 16)
-                }
+                BigInteger(payload.gasPrice!!.removePrefix("0x"), 16)
             } else {
                 web3j.ethGasPrice().sendAsync().get().gasPrice
             }
             val gasLimit = if (payload.gas != null) {
-                if (payload.gas!!.startsWith("0x")) {
-                    BigInteger(payload.gas!!.substring(2), 16)
-                } else {
-                    BigInteger(payload.gas, 16)
-                }
+                BigInteger(payload.gas!!.removePrefix("0x"), 16)
             } else {
                 web3j.ethGetBlockByNumber(DefaultBlockParameterName.LATEST, false).sendAsync().get().block.gasLimit
             }
             var value = if (payload.value != null) {
-                if (payload.value!!.startsWith("0x")) {
-                    payload.value!!.substring(2)
-                } else {
-                    payload.value
-                }
+                payload.value!!.removePrefix("0x")
             } else {
                 throw Exception("Field value is null")
             }
@@ -483,7 +490,6 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         val nfcKeyHandle: TextInputLayout = binding.nfcKeyhandle
         val nfcPinUse: TextInputLayout = binding.nfcPinUse
         val nfcPinSet: TextInputLayout = binding.nfcPinSet
-        val nfcPinVerify: TextInputLayout = binding.nfcPinVerify
         val nfcPuk: TextInputLayout = binding.nfcPuk
         val nfcPinCur: TextInputLayout = binding.nfcPinCur
         val nfcPinNew: TextInputLayout = binding.nfcPinNew
@@ -495,7 +501,6 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         nfcKeyHandle.editText?.setBackgroundColor(Color.TRANSPARENT)
         nfcPinUse.visibility = View.GONE
         nfcPinSet.visibility = View.GONE
-        nfcPinVerify.visibility = View.GONE
         nfcPuk.visibility = View.GONE
         nfcPuk.editText?.inputType = InputType.TYPE_CLASS_TEXT
         nfcPuk.editText?.setBackgroundColor(Color.TRANSPARENT)
@@ -510,8 +515,6 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
             nfcPinUse.editText?.setText("0")
         if (nfcPinSet.editText?.text.toString() == "")
             nfcPinSet.editText?.setText("00000000")
-        if (nfcPinVerify.editText?.text.toString() == "")
-            nfcPinVerify.editText?.setText("00000000")
         if (nfcPuk.editText?.text.toString() == "")
             nfcPuk.editText?.setText("0000000000000000")
         if (nfcPinCur.editText?.text.toString() == "")
@@ -555,9 +558,6 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 nfcPuk.editText?.setTextIsSelectable(true)
                 nfcPuk.editText?.setBackgroundColor(Color.LTGRAY)
             }
-            Actions.VERIFY_PIN -> {
-                nfcPinVerify.visibility = View.VISIBLE
-            }
             Actions.UNLOCK_PIN -> {
                 nfcPuk.visibility = View.VISIBLE
             }
@@ -599,7 +599,6 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
             val pinSet = binding.nfcPinSet.editText?.text.toString()
             val pinCur = binding.nfcPinCur.editText?.text.toString()
             val pinNew = binding.nfcPinNew.editText?.text.toString()
-            val pinVerify = binding.nfcPinVerify.editText?.text.toString()
             val puk = binding.nfcPuk.editText?.text.toString()
             val seed = binding.nfcSeed.editText?.text.toString()
             val message = binding.nfcMessage.editText?.text.toString()
@@ -698,18 +697,6 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     createAndShowDefaultDialog("Response",
                         "Remember the PUK:\n${puk.toHex()}\n\n" +
                         "and the PIN:\n${pinNew}",
-                        "Dismiss", null,
-                        null, null)
-                }
-                Actions.VERIFY_PIN -> {
-                    /* A bug in com.github.infineon:secora-blockchain-apdu:1.0.0
-                       missing selectApplication(card) before the verifyPin()
-                       TO BE FIXED */
-                    if (!NfcUtils.verifyPin(isoTagWrapper, pinVerify.decodeHex()))
-                        throw Exception("Invalid PIN")
-
-                    createAndShowDefaultDialog("Response",
-                        "PIN verification passed",
                         "Dismiss", null,
                         null, null)
                 }

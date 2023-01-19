@@ -75,7 +75,7 @@
                             android:hint="WalletConnect Uri"
                             android:maxLines="1"
                             android:singleLine="true"
-                            android:text="wc:fcfecccf-4930-46b9-9f42-5648579c1658@1?bridge=https%3A%2F%2Fbridge.walletconnect.org&amp;key=4941e24abe9cce7822c17ebeadcd2f25a96b6e6904b9e4ec0942446ad5de8a18" />
+                            android:text="" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
@@ -92,7 +92,7 @@
                             android:hint="Address"
                             android:maxLines="1"
                             android:singleLine="true"
-                            android:text="read card's public key first" />
+                            android:text="" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
@@ -199,7 +199,7 @@
                             android:layout_marginLeft="16dp"
                             android:layout_weight="1"
                             android:clickable="false"
-                            android:text="Action to carry out on tapping"
+                            android:text="NFC action"
                             android:textSize="13sp" />
 
                         <Spinner
@@ -259,25 +259,6 @@
                             android:layout_height="match_parent"
                             android:background="@android:color/transparent"
                             android:hint="Set PIN (4-62B hex value)"
-                            android:inputType="text"
-                            android:maxLines="1"
-                            android:singleLine="true"
-                            android:text="00000000"
-                            android:maxLength="124" />
-                    </com.google.android.material.textfield.TextInputLayout>
-
-                    <com.google.android.material.textfield.TextInputLayout
-                        android:id="@+id/nfcPinVerify"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="16dp"
-                        android:visibility="gone">
-
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:layout_width="match_parent"
-                            android:layout_height="match_parent"
-                            android:background="@android:color/transparent"
-                            android:hint="PIN (4-62B hex value)"
                             android:inputType="text"
                             android:maxLines="1"
                             android:singleLine="true"
