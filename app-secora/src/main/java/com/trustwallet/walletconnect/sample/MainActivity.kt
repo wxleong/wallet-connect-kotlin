@@ -466,10 +466,10 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
             when (chainId) {
                 1.toLong() -> {
-                    /* https://www.infura.io/
-                       or
-                       https://blastapi.io/public-api/ethereum */
-                    /* web3j = Web3j.build(HttpService("https://mainnet.infura.io/v3/7b40d72779e541a498cb0da69aa418a2")) */
+                    /* Public node provider examples:
+                       - https://www.infura.io/
+                       - https://blastapi.io/public-api/ethereum
+                       - and many more ... */
                     web3j = Web3j.build(HttpService("https://eth-mainnet.public.blastapi.io"))
                 }
                 else -> {
