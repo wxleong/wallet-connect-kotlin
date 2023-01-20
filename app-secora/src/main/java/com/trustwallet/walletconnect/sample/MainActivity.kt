@@ -38,9 +38,6 @@ import com.trustwallet.walletconnect.models.session.WCSession
 import com.trustwallet.walletconnect.sample.databinding.ActivityMainBinding
 import okhttp3.OkHttpClient
 import okhttp3.internal.and
-import org.bouncycastle.asn1.ASN1InputStream
-import org.bouncycastle.asn1.ASN1Integer
-import org.bouncycastle.asn1.ASN1Sequence
 import org.web3j.crypto.*
 import org.web3j.crypto.TransactionEncoder.asRlpValues
 import org.web3j.crypto.transaction.type.TransactionType
@@ -51,7 +48,6 @@ import org.web3j.rlp.RlpEncoder
 import org.web3j.rlp.RlpList
 import java.math.BigInteger
 import java.nio.charset.Charset
-
 
 class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
