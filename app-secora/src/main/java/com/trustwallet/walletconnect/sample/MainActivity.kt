@@ -38,9 +38,10 @@ import com.trustwallet.walletconnect.models.session.WCSession
 import com.trustwallet.walletconnect.sample.databinding.ActivityMainBinding
 import okhttp3.OkHttpClient
 import okhttp3.internal.and
-import org.web3j.crypto.RawTransaction
-import org.web3j.crypto.Sign
-import org.web3j.crypto.TransactionEncoder
+import org.bouncycastle.asn1.ASN1InputStream
+import org.bouncycastle.asn1.ASN1Integer
+import org.bouncycastle.asn1.ASN1Sequence
+import org.web3j.crypto.*
 import org.web3j.crypto.TransactionEncoder.asRlpValues
 import org.web3j.crypto.transaction.type.TransactionType
 import org.web3j.protocol.Web3j
@@ -48,7 +49,6 @@ import org.web3j.protocol.core.DefaultBlockParameterName
 import org.web3j.protocol.http.HttpService
 import org.web3j.rlp.RlpEncoder
 import org.web3j.rlp.RlpList
-import wallet.core.jni.*
 import java.math.BigInteger
 import java.nio.charset.Charset
 
@@ -77,19 +77,12 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
     private lateinit var codeScanner: CodeScanner
     private lateinit var wcSession: WCSession
 
-    private var address = ""
     private var alertDialogPin = "0"
     private var alertDialog: AlertDialog? = null
     private var remotePeerMeta: WCPeerMeta? = null
     private var action: Actions = Actions.READ_OR_CREATE_KEYPAIR
     private var nfcCallback: ((IsoTagWrapper)->Unit) =
         { isoTagWrapper -> nfcDefaultCallback(isoTagWrapper) }
-
-    companion object {
-        init {
-            System.loadLibrary("TrustWalletCore")
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -343,7 +336,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
     }
 
     private fun approveSession() {
-        val address = binding.addressInput.editText?.text?.toString() ?: address
+        val address = binding.addressInput.editText?.text?.toString() ?: "Address not set"
         val chainId = binding.chainInput.editText?.text?.toString()?.toIntOrNull() ?: 1
         wcClient.approveSession(listOf(address), chainId)
         binding.connectButton.text = "Kill Session"
@@ -355,10 +348,6 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
     private fun rejectSession() {
         wcClient.rejectSession()
         wcClient.disconnect()
-    }
-
-    private fun rejectRequest(id: Long) {
-        wcClient.rejectRequest(id, "User canceled")
     }
 
     private fun onDisconnect() {
@@ -412,7 +401,9 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     dialogMessage = message.data.decodeHex().toString(Charset.defaultCharset())
                 }
                 WCEthereumSignMessage.WCSignType.TYPED_MESSAGE -> {
-                    byteArrayData = EthereumAbi.encodeTyped(message.data)
+                    val structuredDataEncoder = StructuredDataEncoder(message.data)
+                    byteArrayData = structuredDataEncoder.structuredData
+                    //byteArrayData = EthereumAbi.encodeTyped(message.data)
                     dialogMessage = message.data
                 }
                 else -> {
@@ -435,14 +426,15 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                                 byteArrayToSign = byteArrayData
                             } else {
                                 /* eth_sign (standard) */
-                                byteArrayToSign = Hash.keccak256(prefix + byteArrayData)
+
+                                byteArrayToSign = Hash.sha3(prefix + byteArrayData)
                             }
                         }
                         WCEthereumSignMessage.WCSignType.PERSONAL_MESSAGE -> {
-                            byteArrayToSign = Hash.keccak256(prefix + byteArrayData)
+                            byteArrayToSign = Hash.sha3(prefix + byteArrayData)
                         }
                         WCEthereumSignMessage.WCSignType.TYPED_MESSAGE -> {
-                            byteArrayToSign = byteArrayData
+                            byteArrayToSign = Hash.sha3(byteArrayData)
                         }
 
                         else -> {
@@ -490,7 +482,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 }
             }
 
-            val address = binding.addressInput.editText?.text?.toString() ?: address
+            val address = binding.addressInput.editText?.text?.toString() ?: "Address not set"
             val nonce = web3j.ethGetTransactionCount(address, DefaultBlockParameterName.PENDING).sendAsync().get().transactionCount
             val gasPrice = if (payload.gasPrice.isNullOrBlank()) {
                 web3j.ethGasPrice().sendAsync().get().gasPrice
@@ -511,7 +503,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                 gasLimit, payload.to, BigInteger(value, 16),
                 payload.data)
             val encodedTransaction = TransactionEncoder.encode(rawTransaction, chainId)
-            val byteArrayToSign = Hash.keccak256(encodedTransaction)
+            val byteArrayToSign = Hash.sha3(encodedTransaction)
             val payloadPreview = Gson().toJson(rawTransaction, RawTransaction::class.java)
 
             val alertDialogObject = createAndShowCustomDialog(id, "Transaction", payloadPreview.toString())
@@ -529,7 +521,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
 
                     if (!send) {
                         val rsv = sig.r + sig.s + sig.v
-                        wcClient.approveRequest(id, rsv)
+                        wcClient.approveRequest(id, "0x" + rsv.toHex())
                     } else {
                         if (rawTransaction.type != TransactionType.LEGACY) {
                             wcClient.rejectRequest(id, "Transaction type is not supported")
@@ -593,7 +585,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
     private fun onGetAccounts(id: Long) {
         val account = WCAccount(
             binding.chainInput.editText?.text?.toString()?.toIntOrNull() ?: 1,
-            binding.addressInput.editText?.text?.toString() ?: address,
+            binding.addressInput.editText?.text?.toString() ?: "Address not set",
         )
         wcClient.approveRequest(id, account)
     }
@@ -639,13 +631,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         isoTagWrapper, Integer.parseInt(keyHandle)
                     )
 
-                    address = CoinType.ETHEREUM.deriveAddressFromPublicKey(
-                        PublicKey(
-                            pubkey.publicKey,
-                            PublicKeyType.SECP256K1EXTENDED
-                        )
-                    )
-
+                    val address = Keys.toChecksumAddress(Keys.getAddress(pubkey.publicKeyInHexWithoutPrefix))
                     binding.addressInput.editText?.setText(address)
 
                     createAndShowDefaultDialog("Response",
@@ -673,13 +659,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         isoTagWrapper, 0
                     )
 
-                    address = CoinType.ETHEREUM.deriveAddressFromPublicKey(
-                        PublicKey(
-                            pubkey.publicKey,
-                            PublicKeyType.SECP256K1EXTENDED
-                        )
-                    )
-
+                    val address = Keys.toChecksumAddress(Keys.getAddress(pubkey.publicKeyInHexWithoutPrefix))
                     binding.addressInput.editText?.setText(address)
 
                     createAndShowDefaultDialog("Response",
@@ -700,10 +680,10 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                     val rsv = sig.r + sig.s + sig.v
 
                     createAndShowDefaultDialog("Response",
-                        "Signature (ASN.1):\n${rsv.toHex()}\n\n" +
-                                "r:\n${sig.r.toHex()}\n\n" +
-                                "s:\n${sig.s.toHex()}\n\n" +
-                                "v:\n${sig.v.toHex()}\n\n" +
+                        "Signature (ASN.1):\n0x${rsv.toHex()}\n\n" +
+                                "r:\n0x${sig.r.toHex()}\n\n" +
+                                "s:\n0x${sig.s.toHex()}\n\n" +
+                                "v:\n0x${sig.v.toHex()}\n\n" +
                                 "Signature counter:\n${Integer.decode("0x" + sig.sigCounter.toHex())}\n\n" +
                                 "Global signature counter:\n${Integer.decode("0x" + sig.globalSigCounter.toHex())}",
                         "Dismiss", null,
@@ -786,8 +766,7 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                         pin: ByteArray?, data: ByteArray): SignatureDataObject {
 
         val signature = NfcUtils.generateSignature(isoTagWrapper, keyHandle, data, pin)
-        var asn1Signature = signature.signature.toHex()
-        asn1Signature = asn1Signature.substring(0, asn1Signature.length - 4)
+        val asn1Signature = signature.signature.dropLast(2).toByteArray()
 
         /* ASN.1 DER encoded signature
            Example:
@@ -804,37 +783,34 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
                20: Length of S
                222BAB7E5BCC581373135A5E8C9B1933398B994814CE809FA1053F5E17BC1733
          */
+        val r = extractR(asn1Signature)
+        val s = verifyAndExtractS(asn1Signature)
 
-        /* Signature redundancy check */
+        /* Determines the component v and indirectly verifies the signature */
 
         val rawPublicKey = NfcUtils.readPublicKeyOrCreateIfNotExists(
             isoTagWrapper, keyHandle
         )
-        val publicKey = PublicKey(
-            rawPublicKey.publicKey,
-            PublicKeyType.SECP256K1EXTENDED
-        )
-        if (!publicKey.verifyAsDER(asn1Signature.decodeHex(), data)) {
-            throw Exception("Signature verification failed")
-        }
-        val r = extractR(asn1Signature.decodeHex())
-        val s = verifyAndExtractS(asn1Signature.decodeHex())
-        if (!publicKey.verify(r + s, data)) {
-            throw Exception("Signature verification failed")
-        }
 
-        /* Determine the component v */
+        val address = Keys.getAddress(rawPublicKey.publicKeyInHexWithoutPrefix)
 
-        val rs = r + s
         val v = byteArrayOf(0)
 
-        for (i in 0..3) {
-            val recoveredPublicKey = PublicKey.recover(rs + v, data)
+        for (i in 0..4) {
+            val publicKey = Sign.recoverFromSignature(
+                i,
+                ECDSASignature(BigInteger(1, r), BigInteger(1, s)),
+                data
+            )
 
-            if (recoveredPublicKey != null
-                && recoveredPublicKey.data() contentEquals publicKey.data())
+            if (Keys.getAddress(publicKey) == address) {
+                v[0] = i.toByte()
                 break
-            v[0]++
+            }
+        }
+
+        if (v[0] > 3) {
+            throw Exception("Signature internal verification has failed")
         }
 
         v[0] = v[0].plus(27).toByte()
@@ -865,6 +841,8 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
         }
 
         alertDialog = alertDialogBuilder.show()
+        alertDialog!!.setCancelable(false)
+        alertDialog!!.setCanceledOnTouchOutside(false)
     }
 
     private fun createAndShowCustomDialog(id: Long, title: String, message: String): DialogDataObject {
@@ -884,13 +862,15 @@ class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener {
             .setPositiveButton("Tap Your Card To Sign") { _, _ ->
             }
             .setNegativeButton("Cancel") { _, _ ->
+                wcClient.rejectRequest(id, "User canceled")
             }
             .setOnDismissListener {
-                rejectRequest(id)
                 nfcCallback = { isoTagWrapper -> nfcDefaultCallback(isoTagWrapper) }
             }
             .create()
 
+        alertDialog!!.setCancelable(false)
+        alertDialog!!.setCanceledOnTouchOutside(false)
         alertDialog!!.setView(alertDialogView)
         alertDialog!!.show()
         alertDialog!!.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
