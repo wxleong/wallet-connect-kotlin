@@ -1,1 +1,1 @@
-include ':app', ':app-secora', ':walletconnect'
+include ':app-secora', ':walletconnect'
